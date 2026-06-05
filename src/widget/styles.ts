@@ -66,16 +66,18 @@ export function widgetCss(): string {
   font-weight: 700; font-size: 18px; overflow: hidden;
 }
 .fcw-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.fcw-head-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.fcw-head-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; flex: 1; }
 .fcw-title { font-weight: 700; font-size: 15px; }
 .fcw-subtitle { font-size: 12px; opacity: .85; display: flex; align-items: center; gap: 6px; }
 .fcw-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 2px rgba(255,255,255,.4); }
-.fcw-close {
-  margin-left: auto; background: rgba(255,255,255,.16); border: none; cursor: pointer;
-  color: inherit; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+.fcw-hbtns { display: flex; gap: 6px; margin-left: auto; }
+.fcw-hbtn {
+  background: rgba(255,255,255,.16); border: none; cursor: pointer; color: inherit;
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
   transition: background .15s ease;
 }
-.fcw-close:hover { background: rgba(255,255,255,.3); }
+.fcw-hbtn:hover { background: rgba(255,255,255,.3); }
+.fcw-hbtn svg { width: 17px; height: 17px; }
 
 /* Messages */
 .fcw-messages { flex: 1; overflow-y: auto; padding: 18px; background: var(--fcw-surface); display: flex; flex-direction: column; gap: 10px; }

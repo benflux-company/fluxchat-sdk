@@ -9,6 +9,8 @@ const ICONS = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="vertical-align:-1px"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
 };
 
 interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target'>> {
@@ -28,6 +30,7 @@ function resolve(options: WidgetOptions): Resolved {
     headerSubtitle: options.headerSubtitle ?? 'En ligne',
     primaryColor: options.primaryColor ?? '#4f46e5',
     theme: options.theme ?? 'light',
+    themeToggle: options.themeToggle ?? true,
     position: options.position ?? 'right',
     radius: options.radius ?? 20,
     zIndex: options.zIndex ?? 2147483000,
@@ -63,6 +66,7 @@ export class FluxChatWidget implements WidgetInstance {
   private isOpen = false;
   private busy = false;
   private conversationId = '';
+  private theme: 'light' | 'dark' = 'light';
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
@@ -90,6 +94,16 @@ export class FluxChatWidget implements WidgetInstance {
   send(message: string): void {
     void this.handleSend(message);
   }
+  /** Switch the widget between light and dark. */
+  setTheme(theme: 'light' | 'dark'): void {
+    this.theme = theme;
+    this.root.setAttribute('data-theme', theme);
+    const btn = this.root.querySelector('.fcw-theme');
+    if (btn) btn.innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
+  }
+  toggleTheme(): void {
+    this.setTheme(this.theme === 'dark' ? 'light' : 'dark');
+  }
   destroy(): void {
     this.root.remove();
   }
@@ -106,9 +120,10 @@ export class FluxChatWidget implements WidgetInstance {
   }
 
   private build(): void {
+    this.theme = this.o.theme;
     const root = document.createElement('div');
     root.className = 'fcw-root';
-    root.setAttribute('data-theme', this.o.theme);
+    root.setAttribute('data-theme', this.theme);
     root.setAttribute('data-position', this.o.position);
     root.setAttribute('data-open', 'false');
     root.style.setProperty('--fcw-primary', this.o.primaryColor);
@@ -123,7 +138,10 @@ export class FluxChatWidget implements WidgetInstance {
             <span class="fcw-title">${this.esc(this.o.assistantName)}</span>
             <span class="fcw-subtitle">${this.o.clientName ? this.esc(this.o.clientName) : `<span class="fcw-dot"></span>${this.esc(this.o.headerSubtitle)}`}</span>
           </div>
-          <button class="fcw-close" aria-label="Fermer">${ICONS.close}</button>
+          <div class="fcw-hbtns">
+            ${this.o.themeToggle ? `<button class="fcw-hbtn fcw-theme" aria-label="Changer de thème">${this.theme === 'dark' ? ICONS.sun : ICONS.moon}</button>` : ''}
+            <button class="fcw-hbtn fcw-close" aria-label="Fermer">${ICONS.close}</button>
+          </div>
         </div>
         <div class="fcw-messages"></div>
         <div class="fcw-composer">
@@ -142,6 +160,7 @@ export class FluxChatWidget implements WidgetInstance {
 
     root.querySelector('.fcw-launcher')!.addEventListener('click', () => this.toggle());
     root.querySelector('.fcw-close')!.addEventListener('click', () => this.close());
+    root.querySelector('.fcw-theme')?.addEventListener('click', () => this.toggleTheme());
     this.sendBtn.addEventListener('click', () => this.handleSend(this.input.value));
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {

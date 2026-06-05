@@ -35,6 +35,24 @@ describe('FluxChatWidget', () => {
     expect(document.querySelector('.fcw-subtitle')?.textContent).toContain('Acme Bank');
   });
 
+  it('renders a theme toggle and switches light/dark', () => {
+    const w = new FluxChatWidget({ apiKey: 'k', theme: 'light' });
+    const root = document.querySelector('.fcw-root') as HTMLElement;
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(document.querySelector('.fcw-theme')).not.toBeNull();
+
+    (document.querySelector('.fcw-theme') as HTMLButtonElement).click();
+    expect(root.getAttribute('data-theme')).toBe('dark');
+
+    w.setTheme('light');
+    expect(root.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('can hide the theme toggle', () => {
+    new FluxChatWidget({ apiKey: 'k', themeToggle: false });
+    expect(document.querySelector('.fcw-theme')).toBeNull();
+  });
+
   it('renders the Benflux footer by default and hides it when disabled', () => {
     new FluxChatWidget({ apiKey: 'k' });
     const link = document.querySelector('.fcw-footer a') as HTMLAnchorElement;

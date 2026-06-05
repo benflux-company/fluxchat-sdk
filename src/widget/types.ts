@@ -17,8 +17,10 @@ export interface WidgetOptions {
 
   /** Primary brand color (any CSS color). Default: #4f46e5. */
   primaryColor?: string;
-  /** Color theme. Default: 'light'. */
+  /** Initial color theme. Default: 'light'. */
   theme?: 'light' | 'dark';
+  /** Show a sun/moon button in the header so users can switch theme. Default: true. */
+  themeToggle?: boolean;
   /** Launcher position. Default: 'right'. */
   position?: 'right' | 'left';
   /** Border radius in px for the panel. Default: 20. */
@@ -53,6 +55,10 @@ export interface WidgetInstance {
   toggle(): void;
   /** Programmatically send a message as the user. */
   send(message: string): void;
+  /** Switch the widget between light and dark. */
+  setTheme(theme: 'light' | 'dark'): void;
+  /** Toggle the widget theme. */
+  toggleTheme(): void;
   /** Remove the widget from the DOM. */
   destroy(): void;
 }
