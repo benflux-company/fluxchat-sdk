@@ -1,0 +1,81 @@
+{
+  "name": "@fluxchat_sdk/sdk",
+  "version": "0.1.0",
+  "description": "Official FluxChat SDK, CLI & embeddable chat widget — integrate the FluxChat AI assistant into any app: per-request context, persona, knowledge base, and a beautiful customizable widget.",
+  "keywords": [
+    "fluxchat",
+    "chatbot",
+    "ai",
+    "assistant",
+    "sdk",
+    "cli",
+    "support",
+    "knowledge-base",
+    "mistral"
+  ],
+  "license": "MIT",
+  "author": "Benflux",
+  "homepage": "https://github.com/benflux-company/fluxchat-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benflux-company/fluxchat-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/benflux-company/fluxchat-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./widget": {
+      "types": "./dist/widget/index.d.ts",
+      "import": "./dist/widget/index.js",
+      "require": "./dist/widget/index.cjs"
+    },
+    "./widget.css": "./dist/widget.global.js"
+  },
+  "unpkg": "dist/widget.global.js",
+  "jsdelivr": "dist/widget.global.js",
+  "bin": {
+    "fluxchat": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build",
+    "release": "npm run build && npm publish --access public"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "jsdom": "^25.0.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
