@@ -48,6 +48,24 @@ describe('FluxChatWidget', () => {
     expect(root.getAttribute('data-theme')).toBe('light');
   });
 
+  it('inline mode: no launcher, panel open, mounted in target', () => {
+    const host = document.createElement('div');
+    host.id = 'support';
+    document.body.appendChild(host);
+    new FluxChatWidget({ apiKey: 'k', mode: 'inline', target: '#support', greeting: 'Salut' });
+    const root = host.querySelector('.fcw-root') as HTMLElement;
+    expect(root).not.toBeNull();
+    expect(root.getAttribute('data-mode')).toBe('inline');
+    expect(root.getAttribute('data-open')).toBe('true');
+    expect(host.querySelector('.fcw-launcher')).toBeNull();
+    expect(host.querySelector('.fcw-row.bot .fcw-bubble')?.textContent).toContain('Salut');
+  });
+
+  it('floating mode keeps the launcher (default)', () => {
+    new FluxChatWidget({ apiKey: 'k' });
+    expect(document.querySelector('.fcw-launcher')).not.toBeNull();
+  });
+
   it('can hide the theme toggle', () => {
     new FluxChatWidget({ apiKey: 'k', themeToggle: false });
     expect(document.querySelector('.fcw-theme')).toBeNull();

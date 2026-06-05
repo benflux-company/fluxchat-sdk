@@ -21,7 +21,14 @@ export interface WidgetOptions {
   theme?: 'light' | 'dark';
   /** Show a sun/moon button in the header so users can switch theme. Default: true. */
   themeToggle?: boolean;
-  /** Launcher position. Default: 'right'. */
+  /**
+   * Display mode. Default: 'floating'.
+   * - `floating`: a launcher bubble in a corner that opens a chat panel.
+   * - `inline`: the chat is rendered directly inside `target`, always open and
+   *   filling its container — ideal for a dedicated support / help page.
+   */
+  mode?: 'floating' | 'inline';
+  /** Launcher corner in floating mode. Default: 'right'. */
   position?: 'right' | 'left';
   /** Border radius in px for the panel. Default: 20. */
   radius?: number;

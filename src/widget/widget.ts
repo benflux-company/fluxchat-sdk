@@ -31,6 +31,7 @@ function resolve(options: WidgetOptions): Resolved {
     primaryColor: options.primaryColor ?? '#4f46e5',
     theme: options.theme ?? 'light',
     themeToggle: options.themeToggle ?? true,
+    mode: options.mode ?? 'floating',
     position: options.position ?? 'right',
     radius: options.radius ?? 20,
     zIndex: options.zIndex ?? 2147483000,
@@ -72,7 +73,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.o = resolve(options);
     this.injectStyles();
     this.build();
-    if (this.o.openOnLoad) this.open();
+    if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
   }
 
   // ── Public API ──────────────────────────────────────────
@@ -124,8 +125,9 @@ export class FluxChatWidget implements WidgetInstance {
     const root = document.createElement('div');
     root.className = 'fcw-root';
     root.setAttribute('data-theme', this.theme);
+    root.setAttribute('data-mode', this.o.mode);
     root.setAttribute('data-position', this.o.position);
-    root.setAttribute('data-open', 'false');
+    root.setAttribute('data-open', this.o.mode === 'inline' ? 'true' : 'false');
     root.style.setProperty('--fcw-primary', this.o.primaryColor);
     root.style.setProperty('--fcw-radius', `${this.o.radius}px`);
     root.style.zIndex = String(this.o.zIndex);
@@ -150,7 +152,7 @@ export class FluxChatWidget implements WidgetInstance {
         </div>
         ${this.o.showBranding ? `<div class="fcw-footer">${ICONS.bolt} Propulsé par <a href="${BENFLUX_URL}" target="_blank" rel="noopener noreferrer">Benflux</a></div>` : ''}
       </div>
-      <button class="fcw-launcher" aria-label="${this.attr(this.o.launcherLabel)}" title="${this.attr(this.o.launcherLabel)}">${ICONS.chat}</button>
+      ${this.o.mode === 'floating' ? `<button class="fcw-launcher" aria-label="${this.attr(this.o.launcherLabel)}" title="${this.attr(this.o.launcherLabel)}">${ICONS.chat}</button>` : ''}
     `;
 
     this.root = root;
@@ -158,8 +160,8 @@ export class FluxChatWidget implements WidgetInstance {
     this.input = root.querySelector('.fcw-input')!;
     this.sendBtn = root.querySelector('.fcw-send')!;
 
-    root.querySelector('.fcw-launcher')!.addEventListener('click', () => this.toggle());
-    root.querySelector('.fcw-close')!.addEventListener('click', () => this.close());
+    root.querySelector('.fcw-launcher')?.addEventListener('click', () => this.toggle());
+    root.querySelector('.fcw-close')?.addEventListener('click', () => this.close());
     root.querySelector('.fcw-theme')?.addEventListener('click', () => this.toggleTheme());
     this.sendBtn.addEventListener('click', () => this.handleSend(this.input.value));
     this.input.addEventListener('keydown', (e) => {

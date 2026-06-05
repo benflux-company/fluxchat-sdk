@@ -55,6 +55,17 @@ export function widgetCss(): string {
 .fcw-root[data-position="left"] .fcw-panel { left: 0; }
 .fcw-root[data-open="true"] .fcw-panel { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 
+/* Inline mode: the panel fills its host container (e.g. a support page). */
+.fcw-root[data-mode="inline"] {
+  position: static; bottom: auto; right: auto; left: auto;
+  width: 100%; height: 100%; min-height: 480px; display: flex;
+}
+.fcw-root[data-mode="inline"] .fcw-panel {
+  position: static; width: 100%; height: 100%; max-width: none; max-height: none;
+  flex: 1; opacity: 1; transform: none; pointer-events: auto; box-shadow: none;
+}
+.fcw-root[data-mode="inline"] .fcw-close { display: none; }
+
 /* Header */
 .fcw-header {
   display: flex; align-items: center; gap: 12px; padding: 16px 18px;
