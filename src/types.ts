@@ -16,7 +16,8 @@ export interface FluxChatClientOptions {
   token?: string;
   /**
    * Base URL of the FluxChat API, including the version prefix.
-   * Defaults to `process.env.FLUXCHAT_BASE_URL` or `http://localhost:3000/api/v1`.
+   * Defaults to `process.env.FLUXCHAT_BASE_URL` or the production API on **v2**
+   * (`/api/v2` — required for per-request `context`).
    */
   baseUrl?: string;
   /**

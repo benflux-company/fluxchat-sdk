@@ -168,7 +168,7 @@ import { FluxChat } from '@fluxchat_sdk/sdk';
 const fluxchat = new FluxChat({
   apiKey: 'bfx_xxx',            // X-API-Key auth (public bot + bot:write KB)
   // token: 'eyJ...',           // OR a JWT for admin operations
-  // baseUrl: 'https://dev-api.fluxchat-corp.com/api/v1',
+  // baseUrl: 'https://dev-api.fluxchat-corp.com/api/v2',
   organizationId: 'org-uuid',   // default org for knowledge/config helpers
 });
 ```
@@ -328,6 +328,20 @@ const { reply, conversationId } = await fluxchat.ask({ message: 'Bonjour' });
 // conversationId === "" → nothing was persisted server-side
 ```
 </details>
+
+---
+
+## API versions
+
+The FluxChat API is versioned. This SDK and the widget target **v2** by default.
+
+| Version | Base URL | Notes |
+| ------- | ------------------------------------------ | ----------------------------------------------- |
+| **v2** *(default)* | `https://dev-api.fluxchat-corp.com/api/v2` | Per-request `context`, stateless public asks. |
+| **v1** *(legacy)*  | `https://dev-api.fluxchat-corp.com/api/v1` | Stable, backward-compatible. **Does not accept `context`.** |
+
+Pin a version explicitly via `baseUrl` (SDK) or the `baseUrl` widget option. Passing
+`context` against **v1** returns `400` — use v2 for context-aware answers.
 
 ---
 

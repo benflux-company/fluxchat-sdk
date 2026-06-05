@@ -5,7 +5,8 @@ import {
 } from './errors.js';
 import type { FluxChatClientOptions } from './types.js';
 
-const DEFAULT_BASE_URL = 'https://dev-api.fluxchat-corp.com/api/v1';
+// Targets API v2 by default — that's where per-request `context` lives.
+const DEFAULT_BASE_URL = 'https://dev-api.fluxchat-corp.com/api/v2';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 interface RequestOptions {

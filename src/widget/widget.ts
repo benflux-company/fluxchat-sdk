@@ -24,7 +24,7 @@ function resolve(options: WidgetOptions): Resolved {
   if (!options.apiKey) throw new Error('[FluxChatWidget] `apiKey` is required.');
   return {
     apiKey: options.apiKey,
-    baseUrl: (options.baseUrl ?? 'https://dev-api.fluxchat-corp.com/api/v1').replace(/\/+$/, ''),
+    baseUrl: (options.baseUrl ?? 'https://dev-api.fluxchat-corp.com/api/v2').replace(/\/+$/, ''),
     clientName: options.clientName ?? '',
     assistantName: options.assistantName ?? 'Assistant',
     headerSubtitle: options.headerSubtitle ?? 'En ligne',
