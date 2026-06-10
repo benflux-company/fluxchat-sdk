@@ -83,6 +83,23 @@ export interface WidgetOptions {
   autoContext?: boolean;
 
   /**
+   * Passively capture every page the user visits and send the rendered content
+   * to FluxChat so the bot can answer questions about the entire site.
+   *
+   * Works on **any** site — static HTML, WordPress, React/Vue/Angular SPAs,
+   * e-commerce stores, etc. No API, no configuration required. The widget
+   * intercepts SPA route changes (pushState / replaceState / hashchange) and
+   * captures the rendered DOM text ~300 ms after each navigation.
+   *
+   * Each unique URL is captured only once per browser session.
+   * Captured pages are immediately available to the bot as context; no admin
+   * "import" step is needed.
+   *
+   * Default: true. Set to false only if you handle KB population yourself.
+   */
+  autoCapture?: boolean;
+
+  /**
    * Platform API integration — lets the widget automatically query the host
    * application's own API to enrich bot answers with live data.
    *

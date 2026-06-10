@@ -35,6 +35,7 @@ interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' 
   context?: string;
   target?: string | HTMLElement;
   platformApi?: WidgetOptions['platformApi'];
+  autoCapture: boolean;
 }
 
 // ─── Platform API auto-enrichment types ────────────────────────────────────
@@ -67,6 +68,7 @@ function resolve(options: WidgetOptions): Resolved {
     showBranding: options.showBranding ?? true,
     autoEnvDetect: options.autoEnvDetect ?? true,
     autoContext: options.autoContext ?? true,
+    autoCapture: options.autoCapture ?? true,
     autoCrawl: options.autoCrawl ?? false,
     avatarUrl: options.avatarUrl,
     logoUrl: options.logoUrl,
@@ -111,6 +113,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
     if (this.o.autoCrawl) this.triggerAutoCrawl();
+    if (this.o.autoCapture) this.startPassiveCapture();
     if (this.o.platformApi?.baseUrl) void this.initPlatformApi();
   }
 
@@ -227,6 +230,59 @@ export class FluxChatWidget implements WidgetInstance {
     if (this.o.avatarUrl) return `<img src="${this.attr(this.o.avatarUrl)}" alt="" />`;
     if (this.o.logoUrl) return `<img src="${this.attr(this.o.logoUrl)}" alt="" />`;
     return this.esc((this.o.assistantName[0] ?? 'A').toUpperCase());
+  }
+
+  // ── Passive page capture ────────────────────────────────
+  // Captures the rendered DOM of every page the user visits and sends it to
+  // FluxChat so the bot learns the entire site without any configuration.
+  // Works on static sites AND SPAs (intercepts pushState / replaceState).
+
+  private readonly capturedUrls = new Set<string>();
+
+  private startPassiveCapture(): void {
+    if (typeof window === 'undefined') return;
+
+    // Capture the current page on load
+    void this.captureCurrentPage();
+
+    // SPA route changes via History API
+    const origPush = history.pushState.bind(history);
+    history.pushState = (...args: Parameters<typeof history.pushState>) => {
+      origPush(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+    const origReplace = history.replaceState.bind(history);
+    history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
+      origReplace(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+
+    // Hash-based routing and browser back/forward
+    window.addEventListener('popstate', () => setTimeout(() => void this.captureCurrentPage(), 400));
+    window.addEventListener('hashchange', () => void this.captureCurrentPage());
+  }
+
+  private async captureCurrentPage(): Promise<void> {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+    const url = window.location.href;
+    if (this.capturedUrls.has(url)) return; // once per URL per session
+    this.capturedUrls.add(url);
+
+    const title = document.title;
+    const container = document.querySelector('main') ?? document.body;
+    const content = (container as HTMLElement).innerText
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 5000);
+
+    if (!content || content.length < 80) return; // skip empty / not-yet-rendered pages
+
+    fetch(`${this.o.baseUrl}/public/bot/pages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
+      body: JSON.stringify({ url, title, content }),
+    }).catch(() => undefined); // fire-and-forget
   }
 
   // ── Platform API auto-enrichment ───────────────────────
