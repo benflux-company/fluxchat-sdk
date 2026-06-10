@@ -29,11 +29,20 @@ const ICONS = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
 };
 
-interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target'>> {
+interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target' | 'platformApi'>> {
   avatarUrl?: string;
   logoUrl?: string;
   context?: string;
   target?: string | HTMLElement;
+  platformApi?: WidgetOptions['platformApi'];
+}
+
+// ─── Platform API auto-enrichment types ────────────────────────────────────
+
+interface EndpointInfo {
+  path: string;
+  summary: string;
+  keywords: string;
 }
 
 function resolve(options: WidgetOptions): Resolved {
@@ -63,6 +72,7 @@ function resolve(options: WidgetOptions): Resolved {
     logoUrl: options.logoUrl,
     context: options.context,
     target: options.target,
+    platformApi: options.platformApi,
   };
 }
 
@@ -88,6 +98,7 @@ export class FluxChatWidget implements WidgetInstance {
   private busy = false;
   private conversationId = '';
   private theme: 'light' | 'dark' = 'light';
+  private platformEndpoints: EndpointInfo[] = [];
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
@@ -100,6 +111,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
     if (this.o.autoCrawl) this.triggerAutoCrawl();
+    if (this.o.platformApi?.baseUrl) void this.initPlatformApi();
   }
 
   // ── Public API ──────────────────────────────────────────
@@ -217,6 +229,81 @@ export class FluxChatWidget implements WidgetInstance {
     return this.esc((this.o.assistantName[0] ?? 'A').toUpperCase());
   }
 
+  // ── Platform API auto-enrichment ───────────────────────
+
+  private async initPlatformApi(): Promise<void> {
+    const base = this.o.platformApi!.baseUrl.replace(/\/+$/, '');
+    const candidates = [
+      '/openapi.json', '/swagger.json', '/api-docs.json',
+      '/api/openapi.json', '/api/swagger.json', '/docs/swagger.json',
+    ];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) continue;
+        const spec: unknown = await res.json();
+        this.parsePlatformSpec(spec, base);
+        if (this.platformEndpoints.length > 0) return;
+      } catch { /* try next */ }
+    }
+  }
+
+  private parsePlatformSpec(spec: unknown, base: string): void {
+    const paths = (spec as Record<string, unknown>)?.paths as Record<string, Record<string, unknown>> | undefined;
+    if (!paths) return;
+    for (const [path, methods] of Object.entries(paths)) {
+      if (path.includes('{')) continue; // skip endpoints needing a path param
+      const op = methods['get'] as Record<string, unknown> | undefined;
+      if (!op) continue;
+      const tags = Array.isArray(op['tags']) ? (op['tags'] as string[]).join(' ') : '';
+      this.platformEndpoints.push({
+        path: `${base}${path}`,
+        summary: String(op['summary'] ?? op['operationId'] ?? ''),
+        keywords: `${op['summary'] ?? ''} ${op['description'] ?? ''} ${tags}`.toLowerCase(),
+      });
+    }
+  }
+
+  private getPlatformAuthHeaders(): Record<string, string> {
+    if (typeof localStorage === 'undefined') return {};
+    const keys = this.o.platformApi?.authTokenKeys ?? [
+      'member_token', 'admin_token', 'token', 'auth_token', 'access_token',
+    ];
+    for (const key of keys) {
+      const val = localStorage.getItem(key);
+      if (val) return { Authorization: `Bearer ${val}` };
+    }
+    return {};
+  }
+
+  private async enrichWithPlatformData(question: string): Promise<string> {
+    if (!this.platformEndpoints.length) return '';
+    const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if (!words.length) return '';
+
+    const scored = this.platformEndpoints
+      .map(ep => ({ ep, score: words.filter(w => ep.keywords.includes(w)).length }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    if (!scored.length) return '';
+
+    const parts: string[] = [];
+    await Promise.allSettled(scored.map(async ({ ep }) => {
+      try {
+        const res = await fetch(ep.path, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) return;
+        const json: unknown = await res.json();
+        const data = (json as Record<string, unknown>)?.data ?? json;
+        const str = JSON.stringify(data).substring(0, 2500);
+        parts.push(`${ep.summary || ep.path}:\n${str}`);
+      } catch { /* silent */ }
+    }));
+
+    return parts.join('\n\n');
+  }
+
   // ── Auto-crawl ──────────────────────────────────────────
   private triggerAutoCrawl(): void {
     if (typeof globalThis.window === 'undefined') return;
@@ -301,10 +388,14 @@ export class FluxChatWidget implements WidgetInstance {
     // window.fluxchatContext + DOM data is captured fresh on every send.
     // Static context (this.o.context) is appended after so auto data takes priority.
     const autoCtx = this.buildAutoContext();
-    const mergedContext = [autoCtx, this.o.context]
+    // Enrich with live platform API data when platformApi is configured
+    const platformData = this.o.platformApi?.baseUrl
+      ? await this.enrichWithPlatformData(message)
+      : '';
+    const mergedContext = [autoCtx, platformData ? `DONNÉES EN DIRECT:\n${platformData}` : '', this.o.context]
       .filter(Boolean)
       .join('\n\n')
-      .substring(0, 8000) || undefined;
+      .substring(0, 12000) || undefined;
 
     const payload = {
       message,
