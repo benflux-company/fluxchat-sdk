@@ -1,6 +1,6 @@
 {
   "name": "@fluxchat_sdk/sdk",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Official FluxChat SDK, CLI & embeddable chat widget — integrate the FluxChat AI assistant into any app: per-request context, persona, knowledge base, and a beautiful customizable widget.",
   "keywords": [
     "fluxchat",

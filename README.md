@@ -65,7 +65,7 @@ console.log(reply);
 ### 2. CLI
 
 ```bash
-export FLUXCHAT_API_KEY="bfx_xxx"
+export FLUXCHAT_API_KEY="fc_prod_your_key"
 
 fluxchat test
 fluxchat ask "Bonjour !" --context "Client VIP, panier de 3 articles."
@@ -77,7 +77,7 @@ fluxchat ask "Bonjour !" --context "Client VIP, panier de 3 articles."
 <script src="https://unpkg.com/@fluxchat_sdk/sdk/dist/widget.global.js"></script>
 <script>
   FluxChatWidget.init({
-    apiKey: 'bfx_xxx',
+    apiKey: 'fc_prod_your_key',
     clientName: 'Acme Bank',
     assistantName: 'Léa',
     primaryColor: '#4f46e5',
@@ -114,7 +114,7 @@ A floating chat bubble that looks great out of the box and is **fully themeable*
 ```html
 <script src="https://unpkg.com/@fluxchat_sdk/sdk/dist/widget.global.js"></script>
 <script>
-  const widget = FluxChatWidget.init({ apiKey: 'bfx_xxx' });
+  const widget = FluxChatWidget.init({ apiKey: 'fc_prod_your_key' });
   // widget.open(); widget.close(); widget.send('Hi'); widget.destroy();
 </script>
 ```
@@ -129,6 +129,105 @@ const widget = init({
   clientName: 'Acme Bank',
   assistantName: 'Léa',
 });
+```
+
+**C — React component (recommended for React/Next.js/Vite/CRA apps):**
+
+Instead of the IIFE widget, build a native React component. This gives you full access to React context (auth, store) to inject user-specific data.
+
+Read your API key from the env variable that matches your framework:
+
+| Framework | Env variable prefix | Example |
+|-----------|--------------------|---------------------------------|
+| Vite | `VITE_` | `VITE_FLUXCHAT_API_KEY` |
+| Next.js | `NEXT_PUBLIC_` | `NEXT_PUBLIC_FLUXCHAT_API_KEY` |
+| CRA | `REACT_APP_` | `REACT_APP_FLUXCHAT_API_KEY` |
+| Node / custom | any name | `FLUXCHAT_API_KEY` |
+
+```tsx
+// components/FluxChatWidget.tsx
+import { useState, useRef, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+// Adapt the env variable name to your framework (see table above)
+const API_URL = process.env.NEXT_PUBLIC_FLUXCHAT_API_URL   // Next.js
+            ?? import.meta.env?.VITE_FLUXCHAT_API_URL       // Vite
+            ?? 'https://dev-api.fluxchat-corp.com/api/v2'
+
+const API_KEY = process.env.NEXT_PUBLIC_FLUXCHAT_API_KEY
+            ?? import.meta.env?.VITE_FLUXCHAT_API_KEY
+            ?? ''
+
+function buildContext(conversationActive: boolean): string {
+  const parts: string[] = []
+  const w = globalThis as typeof globalThis & { fluxchatContext?: unknown }
+  if (w.fluxchatContext) {
+    try { parts.push(JSON.stringify(w.fluxchatContext)) } catch { /**/ }
+  }
+  if (document.title) parts.push(`Page: ${document.title}`)
+  parts.push(`URL: ${globalThis.location.href}`)
+  // DOM is only scraped on the first message — prevents page content from
+  // polluting mid-conversation context
+  if (!conversationActive) {
+    const el = document.querySelector('main') ?? document.body
+    const text = el?.innerText?.replace(/\s+/g, ' ').trim().substring(0, 2000)
+    if (text) parts.push(`Content: ${text}`)
+  }
+  return parts.join('\n').substring(0, 8000)
+}
+
+export default function FluxChatWidget() {
+  const [open, setOpen]       = useState(false)
+  const [messages, setMessages] = useState([])
+  const [input, setInput]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const [convId, setConvId]   = useState(null)
+  const conversationStarted   = useRef(false)
+
+  const send = useCallback(async () => {
+    if (!input.trim() || loading || !API_KEY) return
+    const text = input.trim()
+    setMessages(p => [...p, { id: Date.now().toString(), role: 'user', content: text }])
+    setInput('')
+    setLoading(true)
+    try {
+      const context = buildContext(conversationStarted.current)
+      conversationStarted.current = true
+      const res = await fetch(`${API_URL}/public/bot/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        body: JSON.stringify({ message: text, conversationId: convId ?? undefined, context }),
+      })
+      const data = await res.json()
+      const reply = data?.data?.reply ?? 'Sorry, I could not respond.'
+      if (data?.data?.conversationId && !convId) setConvId(data.data.conversationId)
+      setMessages(p => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: reply }])
+    } catch {
+      setMessages(p => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Network error. Please retry.' }])
+    } finally { setLoading(false) }
+  }, [input, loading, convId])
+
+  if (!API_KEY) return null
+  // ... your JSX (floating button, chat window, ReactMarkdown for bot replies)
+}
+```
+
+Mount it at the root of your app so it renders on every page:
+
+```tsx
+// App.tsx or layout.tsx
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>...</Routes>
+        <FluxChatContextInjector />  {/* see window.fluxchatContext section below */}
+        <FluxChatWidget />
+      </BrowserRouter>
+    </AuthProvider>
+  )
+}
 ```
 
 ### Customization
@@ -166,7 +265,7 @@ Returns a `WidgetInstance`: `open()`, `close()`, `toggle()`, `send(message)`, `d
 import { FluxChat } from '@fluxchat_sdk/sdk';
 
 const fluxchat = new FluxChat({
-  apiKey: 'bfx_xxx',            // X-API-Key auth (public bot + bot:write KB)
+  apiKey: 'fc_prod_your_key',            // X-API-Key auth (public bot + bot:write KB)
   // token: 'eyJ...',           // OR a JWT for admin operations
   // baseUrl: 'https://dev-api.fluxchat-corp.com/api/v2',
   organizationId: 'org-uuid',   // default org for knowledge/config helpers
@@ -300,7 +399,7 @@ for (const item of faq) {
 
 ```js
 FluxChatWidget.init({
-  apiKey: 'bfx_xxx',
+  apiKey: 'fc_prod_your_key',
   clientName: 'Acme Bank',
   assistantName: 'Léa',
   primaryColor: '#0a7c4a',
@@ -315,7 +414,7 @@ FluxChatWidget.init({
 <summary><b>Open the widget from your own button</b></summary>
 
 ```js
-const widget = FluxChatWidget.init({ apiKey: 'bfx_xxx' });
+const widget = FluxChatWidget.init({ apiKey: 'fc_prod_your_key' });
 document.querySelector('#help').addEventListener('click', () => widget.open());
 ```
 </details>
@@ -328,6 +427,107 @@ const { reply, conversationId } = await fluxchat.ask({ message: 'Bonjour' });
 // conversationId === "" → nothing was persisted server-side
 ```
 </details>
+
+---
+
+## Injecting user context (`window.fluxchatContext`)
+
+By default the React component widget captures the page title, URL, and visible DOM text. It knows nothing about the logged-in user, their organisation, or page-specific data.
+
+Set `window.fluxchatContext` (or `globalThis.fluxchatContext`) **before** the user sends their first message. The widget reads it automatically on each request.
+
+### Schema
+
+```ts
+window.fluxchatContext = {
+  // Persistent — set at root layout
+  user: {
+    name: 'Alice Martin',
+    email: 'alice@example.com',
+    role: 'admin',            // or 'member', 'owner', etc.
+  },
+  org: {
+    name: 'Acme Bank',
+    id: 'org-uuid',
+  },
+
+  // Page-specific — set per page, removed on unmount
+  billing: {
+    plan: 'pro',
+    messagesUsed: 1240,
+    messagesLimit: 5000,
+  },
+}
+```
+
+### Framework examples
+
+**React / Vite — inject at root (inside your auth provider):**
+
+```tsx
+function FluxChatContextInjector() {
+  const { user, org } = useAuth()   // adapt to your auth hook
+
+  useEffect(() => {
+    const w = globalThis as typeof globalThis & { fluxchatContext?: Record<string, unknown> }
+    if (user) {
+      w.fluxchatContext = {
+        user: { name: user.name, email: user.email, role: user.role },
+        org:  { name: org.name, id: org.id },
+      }
+    } else if (w.fluxchatContext) {
+      const { user: _u, org: _o, ...rest } = w.fluxchatContext
+      w.fluxchatContext = rest
+    }
+  }, [user, org])
+
+  return null
+}
+```
+
+**Next.js — inject in root `layout.tsx`:**
+
+```tsx
+'use client'
+import { useEffect } from 'react'
+import { useSession } from 'next-auth/react'   // or your own auth
+
+export function FluxChatContextInjector() {
+  const { data: session } = useSession()
+
+  useEffect(() => {
+    const w = window as Window & { fluxchatContext?: Record<string, unknown> }
+    if (session?.user) {
+      w.fluxchatContext = {
+        user: { name: session.user.name, email: session.user.email },
+      }
+    }
+  }, [session])
+
+  return null
+}
+```
+
+**Page-specific data (any framework) — merge and clean up on unmount:**
+
+```tsx
+useEffect(() => {
+  const w = globalThis as typeof globalThis & { fluxchatContext?: Record<string, unknown> }
+  w.fluxchatContext = { ...(w.fluxchatContext ?? {}), billing: quotaData }
+  return () => {
+    if (w.fluxchatContext) {
+      const { billing: _b, ...rest } = w.fluxchatContext
+      w.fluxchatContext = rest
+    }
+  }
+}, [quotaData])
+```
+
+> **Important rules**
+> - Set persistent data (user, org) at the root layout — not per-page — to avoid race conditions.
+> - Always merge page-specific data; never overwrite the full object.
+> - Clean up page-specific keys on component unmount so stale data doesn't bleed across routes.
+> - DOM scraping is disabled after the first message — `fluxchatContext` is the reliable source for all subsequent turns.
 
 ---
 
