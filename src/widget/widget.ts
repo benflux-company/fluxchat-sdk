@@ -4,6 +4,22 @@ import type { WidgetInstance, WidgetOptions } from './types.js';
 const STYLE_ID = 'fluxchat-widget-styles';
 const BENFLUX_URL = 'https://benflux-corp.com';
 
+const DEV_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
+const DEV_SUFFIXES  = ['.local', '.dev', '.test', '.localhost', '.internal'];
+
+function detectEnv(apiKey: string, autoDetect: boolean): 'dev' | 'prod' {
+  if (!autoDetect) return 'prod';
+  // API key prefix is the strongest signal
+  if (apiKey.startsWith('fc_dev_')) return 'dev';
+  // Fallback: hostname-based detection (runs in browser only)
+  if (typeof globalThis.window !== 'undefined') {
+    const host = globalThis.window.location.hostname;
+    if (DEV_HOSTNAMES.has(host)) return 'dev';
+    if (DEV_SUFFIXES.some(s => host.endsWith(s))) return 'dev';
+  }
+  return 'prod';
+}
+
 const ICONS = {
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
@@ -40,6 +56,9 @@ function resolve(options: WidgetOptions): Resolved {
     launcherLabel: options.launcherLabel ?? 'Discuter',
     openOnLoad: options.openOnLoad ?? false,
     showBranding: options.showBranding ?? true,
+    autoEnvDetect: options.autoEnvDetect ?? true,
+    autoContext: options.autoContext ?? true,
+    autoCrawl: options.autoCrawl ?? false,
     avatarUrl: options.avatarUrl,
     logoUrl: options.logoUrl,
     context: options.context,
@@ -60,6 +79,7 @@ function renderMarkup(text: string): string {
 
 export class FluxChatWidget implements WidgetInstance {
   private readonly o: Resolved;
+  private readonly isDevMode: boolean;
   private root!: HTMLDivElement;
   private messagesEl!: HTMLDivElement;
   private input!: HTMLTextAreaElement;
@@ -71,9 +91,15 @@ export class FluxChatWidget implements WidgetInstance {
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
+    this.isDevMode = detectEnv(this.o.apiKey, this.o.autoEnvDetect) === 'dev';
+    if (this.isDevMode) {
+      // eslint-disable-next-line no-console
+      console.debug('[FluxChatWidget] DEV mode — requests will include X-FluxChat-Env: development');
+    }
     this.injectStyles();
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
+    if (this.o.autoCrawl) this.triggerAutoCrawl();
   }
 
   // ── Public API ──────────────────────────────────────────
@@ -141,6 +167,7 @@ export class FluxChatWidget implements WidgetInstance {
             <span class="fcw-subtitle">${this.o.clientName ? this.esc(this.o.clientName) : `<span class="fcw-dot"></span>${this.esc(this.o.headerSubtitle)}`}</span>
           </div>
           <div class="fcw-hbtns">
+            ${this.isDevMode ? '<span class="fcw-dev-badge">DEV</span>' : ''}
             ${this.o.themeToggle ? `<button class="fcw-hbtn fcw-theme" aria-label="Changer de thème">${this.theme === 'dark' ? ICONS.sun : ICONS.moon}</button>` : ''}
             <button class="fcw-hbtn fcw-close" aria-label="Fermer">${ICONS.close}</button>
           </div>
@@ -190,6 +217,56 @@ export class FluxChatWidget implements WidgetInstance {
     return this.esc((this.o.assistantName[0] ?? 'A').toUpperCase());
   }
 
+  // ── Auto-crawl ──────────────────────────────────────────
+  private triggerAutoCrawl(): void {
+    if (typeof globalThis.window === 'undefined') return;
+    const url = globalThis.window.location.href;
+    // Fire-and-forget — errors are swallowed intentionally
+    fetch(`${this.o.baseUrl}/public/bot/knowledge/crawl`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': this.o.apiKey,
+        'X-FluxChat-Env': this.isDevMode ? 'development' : 'production',
+      },
+      body: JSON.stringify({ url }),
+    }).catch(() => undefined);
+  }
+
+  // ── Auto-context (DOM capture) ──────────────────────────
+  private buildAutoContext(): string | undefined {
+    if (!this.o.autoContext) return undefined;
+    if (typeof document === 'undefined') return undefined;
+
+    const parts: string[] = [];
+
+    // 1. window.fluxchatContext — set by the host app at runtime (highest priority)
+    const win = globalThis.window as (Window & { fluxchatContext?: unknown }) | undefined;
+    if (win?.fluxchatContext !== undefined) {
+      const raw = win.fluxchatContext;
+      parts.push(typeof raw === 'string' ? raw : JSON.stringify(raw));
+    }
+
+    // 2. data-fluxchat attributes on any DOM element
+    document.querySelectorAll<HTMLElement>('[data-fluxchat]').forEach(el => {
+      const val = el.dataset['fluxchat'];
+      if (val) parts.push(val);
+    });
+
+    // 3. Page title + URL
+    parts.push(`Page: ${document.title} (${globalThis.window?.location.href ?? ''})`);
+
+    // 4. Visible text from <main> or <body>, capped at 3 000 chars
+    const container = document.querySelector('main') ?? document.body;
+    const pageText = (container as HTMLElement).innerText
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 3000);
+    if (pageText) parts.push(`Contenu visible:\n${pageText}`);
+
+    return parts.length > 0 ? parts.join('\n\n') : undefined;
+  }
+
   // ── Messaging ───────────────────────────────────────────
   private async handleSend(raw: string): Promise<void> {
     const text = raw.trim();
@@ -218,16 +295,44 @@ export class FluxChatWidget implements WidgetInstance {
   }
 
   private async askApi(message: string): Promise<string> {
+    const env = this.isDevMode ? 'development' : 'production';
+
+    // Merge auto-captured DOM context with static context option.
+    // window.fluxchatContext + DOM data is captured fresh on every send.
+    // Static context (this.o.context) is appended after so auto data takes priority.
+    const autoCtx = this.buildAutoContext();
+    const mergedContext = [autoCtx, this.o.context]
+      .filter(Boolean)
+      .join('\n\n')
+      .substring(0, 8000) || undefined;
+
+    const payload = {
+      message,
+      context: mergedContext,
+      conversationId: this.conversationId || undefined,
+    };
+
+    if (this.isDevMode) {
+      // eslint-disable-next-line no-console
+      console.debug('[FluxChatWidget] →', payload);
+    }
+
     const res = await fetch(`${this.o.baseUrl}/public/bot/ask`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
-      body: JSON.stringify({
-        message,
-        context: this.o.context,
-        conversationId: this.conversationId || undefined,
-      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': this.o.apiKey,
+        'X-FluxChat-Env': env,
+      },
+      body: JSON.stringify(payload),
     });
     const json = await res.json().catch(() => undefined);
+
+    if (this.isDevMode) {
+      // eslint-disable-next-line no-console
+      console.debug('[FluxChatWidget] ←', json);
+    }
+
     if (!res.ok) {
       throw new Error(json?.message || `HTTP ${res.status}`);
     }

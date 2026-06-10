@@ -54,6 +54,33 @@ export interface WidgetOptions {
   showBranding?: boolean;
   /** DOM element (or selector) to mount into. Default: document.body. */
   target?: string | HTMLElement;
+  /**
+   * Silently crawl the current page URL on first widget load and store it in
+   * the organization's knowledge base (requires API key with bot:write scope).
+   * Errors are swallowed — the widget works normally even if the crawl fails.
+   * Default: false.
+   */
+  autoCrawl?: boolean;
+
+  /**
+   * Auto-detect the environment from the hostname and API key prefix.
+   * When true (default), the widget shows a DEV badge on localhost / *.local / *.dev
+   * and sends X-FluxChat-Env: development with every request.
+   * Set to false to disable detection entirely.
+   */
+  autoEnvDetect?: boolean;
+
+  /**
+   * Automatically capture page context on every message send and inject it
+   * into the v2 `context` field. Captures (in priority order):
+   *   1. `window.fluxchatContext` — set by your app at runtime (any value/object)
+   *   2. `data-fluxchat="..."` attributes on DOM elements
+   *   3. Page title + current URL
+   *   4. Visible text from <main> (or <body> if absent), truncated to 3 000 chars
+   * Merged with the static `context` option if both are set.
+   * Default: true. Set to false to rely solely on the static `context` option.
+   */
+  autoContext?: boolean;
 }
 
 export interface WidgetInstance {

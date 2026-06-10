@@ -189,6 +189,39 @@ export function buildProgram(): Command {
       }
     });
 
+  kb.command('crawl')
+    .description('Crawl a URL (or sitemap) and auto-populate the KB (API key with bot:write)')
+    .requiredOption('--url <url>', 'Page URL or sitemap.xml URL to crawl')
+    .option('--sitemap', 'Treat the URL as a sitemap.xml', false)
+    .option('--max-pages <n>', 'Max pages when using a sitemap (default: 10)', '10')
+    .action(async (opts: { url: string; sitemap: boolean; maxPages: string }, cmd: Command) => {
+      const g = globals(cmd);
+      try {
+        const res = await createClient(g).knowledge.crawl(
+          { url: opts.url, isSitemap: opts.sitemap, maxPages: Number(opts.maxPages) },
+          g.org,
+        );
+        if (g.json) {
+          out(res, true);
+        } else {
+          process.stdout.write(
+            pc.green(`✓ Crawl done`) +
+            ` — ${res.created} created, ${res.skipped} skipped` +
+            (res.errors.length ? pc.yellow(` (${res.errors.length} errors)`) : '') +
+            '\n',
+          );
+          if (res.articles.length) {
+            res.articles.forEach(a => process.stdout.write(`  + ${a.title} (${a.id})\n`));
+          }
+          if (res.errors.length) {
+            res.errors.forEach(e => process.stderr.write(pc.yellow(`  ⚠ ${e}`) + '\n'));
+          }
+        }
+      } catch (err) {
+        fail(err);
+      }
+    });
+
   // ── config ────────────────────────────────────────────
   const config = program.command('config').description('Manage the bot persona');
 

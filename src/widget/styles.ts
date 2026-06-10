@@ -81,7 +81,13 @@ export function widgetCss(): string {
 .fcw-title { font-weight: 700; font-size: 15px; }
 .fcw-subtitle { font-size: 12px; opacity: .85; display: flex; align-items: center; gap: 6px; }
 .fcw-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 2px rgba(255,255,255,.4); }
-.fcw-hbtns { display: flex; gap: 6px; margin-left: auto; }
+.fcw-hbtns { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+/* DEV environment badge */
+.fcw-dev-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  background: rgba(251,191,36,.25); color: #fbbf24; border: 1px solid rgba(251,191,36,.5);
+  border-radius: 5px; padding: 2px 7px; line-height: 1.4; white-space: nowrap;
+}
 .fcw-hbtn {
   background: rgba(255,255,255,.16); border: none; cursor: pointer; color: inherit;
   width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;

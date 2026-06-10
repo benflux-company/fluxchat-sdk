@@ -76,4 +76,19 @@ export class KnowledgeResource {
       path: `/bot/organizations/${this.orgId(organizationId)}/knowledge/${id}`,
     });
   }
+
+  /**
+   * Crawl a URL (or sitemap.xml) and auto-populate the knowledge base.
+   * Requires an API key with the `bot:write` scope. v2 only.
+   */
+  async crawl(
+    input: { url: string; isSitemap?: boolean; maxPages?: number },
+    organizationId?: string,
+  ): Promise<{ created: number; skipped: number; errors: string[]; articles: { id: string; title: string }[] }> {
+    return this.http.request({
+      method: 'POST',
+      path: `/bot/organizations/${this.orgId(organizationId)}/knowledge/crawl`,
+      body: input,
+    });
+  }
 }
