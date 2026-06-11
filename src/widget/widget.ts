@@ -254,6 +254,9 @@ export class FluxChatWidget implements WidgetInstance {
   private startPassiveCapture(): void {
     if (typeof window === 'undefined') return;
 
+    // Intercept all fetch/XHR API calls made by the host app
+    this.startApiInterception();
+
     // Capture the current page on load
     void this.captureCurrentPage();
 
@@ -307,11 +310,160 @@ export class FluxChatWidget implements WidgetInstance {
       ? `${text}\n\nLiens sur cette page:\n${links}`.substring(0, 6000)
       : text;
 
+    this.sendCapture({ type: 'page', url, title, content });
+  }
+
+  // ── Universal API interception ─────────────────────────
+  // Intercepts window.fetch and XMLHttpRequest to auto-capture every
+  // JSON API response the host app makes, regardless of the library used
+  // (axios, React Query, SWR, tRPC, GraphQL, etc.).
+
+  private readonly capturedApiHashes = new Set<string>();
+  // URLs to never capture: auth, uploads, binaries, streaming, internal
+  private readonly SKIP_URL_RE = /\/(login|logout|auth|token|refresh|signup|register|upload|avatar|thumbnail|image|blob|socket\.io|ws|sse|metrics|health|ping|favicon)/i;
+  private readonly SKIP_EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|pdf|zip|mp4|mp3|csv)(\?|$)/i;
+
+  private startApiInterception(): void {
+    this.interceptFetch();
+    this.interceptXhr();
+    this.captureLocalStorage();
+  }
+
+  private interceptFetch(): void {
+    const origFetch = globalThis.fetch?.bind(globalThis);
+    if (!origFetch) return;
+    const self = this;
+    globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const res = await origFetch(input, init);
+      try {
+        const rawUrl = typeof input === 'string' ? input
+          : input instanceof URL ? input.href
+          : (input as Request).url;
+        const method = (init?.method ?? 'GET').toUpperCase();
+        if (method === 'GET' && !self.SKIP_URL_RE.test(rawUrl) && !self.SKIP_EXT_RE.test(rawUrl)) {
+          const ct = res.headers.get('content-type') ?? '';
+          if (ct.includes('application/json') || ct.includes('text/json')) {
+            res.clone().json().then((data: unknown) => self.captureApiData(rawUrl, data)).catch(() => undefined);
+          }
+        }
+      } catch { /* never break the host app's fetch */ }
+      return res;
+    };
+  }
+
+  private interceptXhr(): void {
+    if (typeof XMLHttpRequest === 'undefined') return;
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+    const self = this;
+
+    XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: [boolean?, string?, string?]) {
+      (this as any)._fcUrl = String(url);
+      (this as any)._fcMethod = method;
+      return origOpen.apply(this, [method, url, ...rest] as Parameters<typeof origOpen>);
+    };
+
+    XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
+      this.addEventListener('load', function () {
+        try {
+          const url: string = (this as any)._fcUrl ?? '';
+          const method: string = ((this as any)._fcMethod ?? 'GET').toUpperCase();
+          if (method !== 'GET') return;
+          if (self.SKIP_URL_RE.test(url) || self.SKIP_EXT_RE.test(url)) return;
+          const ct = this.getResponseHeader('content-type') ?? '';
+          if (!ct.includes('application/json') && !ct.includes('text/json')) return;
+          const data = JSON.parse(this.responseText) as unknown;
+          self.captureApiData(url, data);
+        } catch { /* ignore */ }
+      });
+      return origSend.apply(this, [body] as Parameters<typeof origSend>);
+    };
+  }
+
+  private captureApiData(apiUrl: string, data: unknown): void {
+    if (!data || typeof data !== 'object') return;
+    const str = JSON.stringify(data);
+    // Skip trivial responses and huge payloads (images/blobs encoded as base64, etc.)
+    if (str.length < 100 || str.length > 80_000) return;
+
+    const hash = this.captureHash(str);
+    if (this.capturedApiHashes.has(hash)) return;
+    this.capturedApiHashes.add(hash);
+
+    let absUrl = apiUrl;
+    try { absUrl = new URL(apiUrl, globalThis.location?.origin ?? '').href; } catch { /* keep relative */ }
+
+    this.sendCapture({
+      type: 'api',
+      url: absUrl,
+      title: apiUrl,
+      content: str,
+      pageUrl: globalThis.location?.href,
+      pageTitle: globalThis.document?.title,
+    });
+  }
+
+  private captureLocalStorage(): void {
+    try {
+      const ls = globalThis.localStorage;
+      if (!ls || ls.length === 0) return;
+      const pairs: string[] = [];
+      for (let i = 0; i < ls.length; i++) {
+        const key = ls.key(i);
+        if (!key) continue;
+        if (/token|auth|jwt|session|password|secret|api.?key|csrf|nonce|theme|lang|color|dark|locale|sidebar/i.test(key)) continue;
+        const val = ls.getItem(key);
+        if (!val || val.length < 20 || val.length > 8_000) continue;
+        pairs.push(`${key}: ${val.substring(0, 500)}`);
+      }
+      if (!pairs.length) return;
+      const content = pairs.join('\n');
+      const hash = this.captureHash(content);
+      if (this.capturedApiHashes.has(hash)) return;
+      this.capturedApiHashes.add(hash);
+      this.sendCapture({
+        type: 'cache',
+        url: `cache://localStorage@${globalThis.location?.host ?? 'unknown'}`,
+        title: 'localStorage',
+        content,
+        pageUrl: globalThis.location?.href,
+        pageTitle: globalThis.document?.title,
+      });
+    } catch { /* ignore — e.g. Safari ITP in private mode */ }
+  }
+
+  /** Fire-and-forget POST to the passive capture endpoint. */
+  private sendCapture(payload: {
+    type: 'page' | 'api' | 'cache';
+    url: string;
+    title?: string;
+    content: string;
+    pageUrl?: string;
+    pageTitle?: string;
+  }): void {
+    const body = JSON.stringify(payload);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-API-Key': this.o.apiKey,
+    };
+    // keepalive keeps the request alive even when the page is unloading (like sendBeacon but with custom headers)
     fetch(`${this.o.baseUrl}/public/bot/pages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
-      body: JSON.stringify({ url, title, content }),
-    }).catch(() => undefined); // fire-and-forget
+      headers,
+      body,
+      keepalive: true,
+    }).catch(() => undefined);
+  }
+
+  /** FNV-1a-like hash for client-side deduplication (non-crypto, fast). */
+  private captureHash(str: string): string {
+    let h = 0x811c9dc5;
+    const s = str.substring(0, 3000);
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16);
   }
 
   // ── Platform API auto-enrichment ───────────────────────
