@@ -802,9 +802,9 @@ export class FluxChatWidget implements WidgetInstance {
       const res = await fetch(`${this.o.baseUrl}/public/bot/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
+        // No sessionId — correction calls must NOT pollute the conversation history
         body: JSON.stringify({
           message: `Corrige les fautes d'orthographe et de grammaire dans ce texte, retourne UNIQUEMENT le texte corrigé sans explication : "${original}"`,
-          sessionId: this.sessionId,
         }),
       });
       const json = await res.json().catch(() => undefined);
