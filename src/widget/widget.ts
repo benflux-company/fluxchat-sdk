@@ -159,6 +159,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.setTheme(this.theme === 'dark' ? 'light' : 'dark');
   }
   destroy(): void {
+    this.restoreInterceptions();
     this.root.remove();
   }
 
@@ -260,21 +261,25 @@ export class FluxChatWidget implements WidgetInstance {
     // Capture the current page on load
     void this.captureCurrentPage();
 
-    // SPA route changes via History API
-    const origPush = history.pushState.bind(history);
+    // SPA route changes via History API — save originals for destroy()
+    this._origHistoryPush = history.pushState.bind(history);
+    const origPush = this._origHistoryPush;
     history.pushState = (...args: Parameters<typeof history.pushState>) => {
       origPush(...args);
       setTimeout(() => void this.captureCurrentPage(), 400);
     };
-    const origReplace = history.replaceState.bind(history);
+    this._origHistoryReplace = history.replaceState.bind(history);
+    const origReplace = this._origHistoryReplace;
     history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
       origReplace(...args);
       setTimeout(() => void this.captureCurrentPage(), 400);
     };
 
-    // Hash-based routing and browser back/forward
-    window.addEventListener('popstate', () => setTimeout(() => void this.captureCurrentPage(), 400));
-    window.addEventListener('hashchange', () => void this.captureCurrentPage());
+    // Hash-based routing and browser back/forward — save for destroy()
+    this._popstateHandler = () => setTimeout(() => void this.captureCurrentPage(), 400);
+    this._hashchangeHandler = () => void this.captureCurrentPage();
+    window.addEventListener('popstate', this._popstateHandler);
+    window.addEventListener('hashchange', this._hashchangeHandler);
   }
 
   private async captureCurrentPage(): Promise<void> {
@@ -319,9 +324,19 @@ export class FluxChatWidget implements WidgetInstance {
   // (axios, React Query, SWR, tRPC, GraphQL, etc.).
 
   private readonly capturedApiHashes = new Set<string>();
+  private static readonly HASH_CAP = 500;
   // URLs to never capture: auth, uploads, binaries, streaming, internal
   private readonly SKIP_URL_RE = /\/(login|logout|auth|token|refresh|signup|register|upload|avatar|thumbnail|image|blob|socket\.io|ws|sse|metrics|health|ping|favicon)/i;
   private readonly SKIP_EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|pdf|zip|mp4|mp3|csv)(\?|$)/i;
+
+  // Store originals so destroy() can fully restore them
+  private _origFetch: typeof globalThis.fetch | undefined;
+  private _origXhrOpen: typeof XMLHttpRequest.prototype.open | undefined;
+  private _origXhrSend: typeof XMLHttpRequest.prototype.send | undefined;
+  private _origHistoryPush: typeof history.pushState | undefined;
+  private _origHistoryReplace: typeof history.replaceState | undefined;
+  private _popstateHandler: (() => void) | undefined;
+  private _hashchangeHandler: (() => void) | undefined;
 
   private startApiInterception(): void {
     this.interceptFetch();
@@ -332,6 +347,7 @@ export class FluxChatWidget implements WidgetInstance {
   private interceptFetch(): void {
     const origFetch = globalThis.fetch?.bind(globalThis);
     if (!origFetch) return;
+    this._origFetch = origFetch;
     const self = this;
     globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
       const res = await origFetch(input, init);
@@ -355,6 +371,8 @@ export class FluxChatWidget implements WidgetInstance {
     if (typeof XMLHttpRequest === 'undefined') return;
     const origOpen = XMLHttpRequest.prototype.open;
     const origSend = XMLHttpRequest.prototype.send;
+    this._origXhrOpen = origOpen;
+    this._origXhrSend = origSend;
     const self = this;
 
     XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: [boolean?, string?, string?]) {
@@ -380,6 +398,39 @@ export class FluxChatWidget implements WidgetInstance {
     };
   }
 
+  private restoreInterceptions(): void {
+    if (this._origFetch) {
+      globalThis.fetch = this._origFetch;
+      this._origFetch = undefined;
+    }
+    if (this._origXhrOpen) {
+      XMLHttpRequest.prototype.open = this._origXhrOpen;
+      this._origXhrOpen = undefined;
+    }
+    if (this._origXhrSend) {
+      XMLHttpRequest.prototype.send = this._origXhrSend;
+      this._origXhrSend = undefined;
+    }
+    if (this._origHistoryPush) {
+      history.pushState = this._origHistoryPush;
+      this._origHistoryPush = undefined;
+    }
+    if (this._origHistoryReplace) {
+      history.replaceState = this._origHistoryReplace;
+      this._origHistoryReplace = undefined;
+    }
+    if (this._popstateHandler) {
+      window.removeEventListener('popstate', this._popstateHandler);
+      this._popstateHandler = undefined;
+    }
+    if (this._hashchangeHandler) {
+      window.removeEventListener('hashchange', this._hashchangeHandler);
+      this._hashchangeHandler = undefined;
+    }
+    this.capturedApiHashes.clear();
+    this.capturedUrls.clear();
+  }
+
   private captureApiData(apiUrl: string, data: unknown): void {
     if (!data || typeof data !== 'object') return;
     const str = JSON.stringify(data);
@@ -388,6 +439,10 @@ export class FluxChatWidget implements WidgetInstance {
 
     const hash = this.captureHash(str);
     if (this.capturedApiHashes.has(hash)) return;
+    // Cap the dedup set to avoid unbounded memory growth on long sessions
+    if (this.capturedApiHashes.size >= FluxChatWidget.HASH_CAP) {
+      this.capturedApiHashes.clear();
+    }
     this.capturedApiHashes.add(hash);
 
     let absUrl = apiUrl;
