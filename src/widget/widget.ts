@@ -99,12 +99,24 @@ export class FluxChatWidget implements WidgetInstance {
   private isOpen = false;
   private busy = false;
   private conversationId = '';
+  private sessionId = '';
   private theme: 'light' | 'dark' = 'light';
   private platformEndpoints: EndpointInfo[] = [];
+  private lastPlatformData = '';
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
     this.isDevMode = detectEnv(this.o.apiKey, this.o.autoEnvDetect) === 'dev';
+    this.sessionId = (() => {
+      try {
+        const k = `fcw_sid_${this.o.apiKey.slice(-8)}`;
+        const stored = localStorage.getItem(k);
+        if (stored) return stored;
+        const id = crypto.randomUUID();
+        localStorage.setItem(k, id);
+        return id;
+      } catch { return crypto.randomUUID(); }
+    })();
     if (this.isDevMode) {
       // eslint-disable-next-line no-console
       console.debug('[FluxChatWidget] DEV mode — requests will include X-FluxChat-Env: development');
@@ -349,8 +361,22 @@ export class FluxChatWidget implements WidgetInstance {
     return {};
   }
 
+  private isFollowUp(text: string): boolean {
+    const n = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return text.trim().length < 40 && (
+      /^[?!]+$/.test(n.trim()) ||
+      /lequel|lesquels|premier|deuxi|troisieme|detail|plus|encore|montre|donne|liste|combien|comment|pourquoi|expliqu|precis/.test(n)
+    );
+  }
+
   private async enrichWithPlatformData(question: string): Promise<string> {
     if (!this.platformEndpoints.length) return '';
+
+    // Reuse last platform data for follow-up questions ("lesquels ?", "le premier", etc.)
+    if (this.isFollowUp(question) && this.lastPlatformData) {
+      return this.lastPlatformData;
+    }
+
     const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
     if (!words.length) return '';
 
@@ -374,7 +400,9 @@ export class FluxChatWidget implements WidgetInstance {
       } catch { /* silent */ }
     }));
 
-    return parts.join('\n\n');
+    const result = parts.join('\n\n');
+    if (result) this.lastPlatformData = result;
+    return result;
   }
 
   // ── Auto-crawl ──────────────────────────────────────────
@@ -474,6 +502,7 @@ export class FluxChatWidget implements WidgetInstance {
       message,
       context: mergedContext,
       conversationId: this.conversationId || undefined,
+      sessionId: this.sessionId,
     };
 
     if (this.isDevMode) {
