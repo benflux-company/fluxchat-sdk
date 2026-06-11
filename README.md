@@ -254,6 +254,7 @@ export default function App() {
 | `target`         | `string \| HTMLElement` | `document.body`            | Where to mount the widget.                        |
 | `autoContext`    | `boolean`               | `true`                     | Inject the current page (title, URL, DOM text, `window.fluxchatContext`) into every message. |
 | `autoCapture`    | `boolean`               | `true`                     | Passively capture every page visited and store it so the bot knows your entire site. Works on any stack — static HTML, WordPress, React/Vue SPAs. |
+| `quickReplies`   | `string[]`              | `[]`                       | Tap-to-send chip row shown below the greeting. Chips disappear after the first user message. E.g. `['What can you do?', 'Show me pricing']`. |
 | `platformApi`    | `{ baseUrl: string; authTokenKeys?: string[] }` | — | Base URL of your platform's REST API. The widget auto-discovers GET endpoints and queries relevant ones per message to enrich answers with live data. |
 
 Returns a `WidgetInstance`: `open()`, `close()`, `toggle()`, `send(message)`, `destroy()`.
