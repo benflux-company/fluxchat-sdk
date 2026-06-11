@@ -86,7 +86,7 @@ function renderMarkup(text: string): string {
     .replace(/>/g, '&gt;');
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
 }
 
 export class FluxChatWidget implements WidgetInstance {
@@ -271,12 +271,29 @@ export class FluxChatWidget implements WidgetInstance {
 
     const title = document.title;
     const container = document.querySelector('main') ?? document.body;
-    const content = (container as HTMLElement).innerText
+    const text = (container as HTMLElement).innerText
       ?.replace(/\s+/g, ' ')
       .trim()
-      .substring(0, 5000);
+      .substring(0, 4000);
 
-    if (!content || content.length < 80) return; // skip empty / not-yet-rendered pages
+    if (!text || text.length < 80) return; // skip empty / not-yet-rendered pages
+
+    // Capture visible links so the bot knows the direct URL of each item on this page
+    // (sermons, events, products, recipes, articles — any content type).
+    const links = Array.from(container.querySelectorAll('a[href]'))
+      .map(a => {
+        const el = a as HTMLAnchorElement;
+        const label = el.innerText?.replace(/\s+/g, ' ').trim();
+        const href = el.href;
+        return label && href && !href.startsWith('javascript') ? `[${label}](${href})` : null;
+      })
+      .filter(Boolean)
+      .slice(0, 60) // keep the first 60 links per page
+      .join('\n');
+
+    const content = links
+      ? `${text}\n\nLiens sur cette page:\n${links}`.substring(0, 6000)
+      : text;
 
     fetch(`${this.o.baseUrl}/public/bot/pages`, {
       method: 'POST',
