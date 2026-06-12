@@ -1,40 +1,57 @@
-import { useState, useContext, useEffect } from 'react';
+import { useState, useContext, useEffect, useMemo } from 'react';
 import { FluxChatContext } from './fluxchatContext';
+import { FluxChatClient, AskOptions } from './client';
 
-export function useFluxChat(apiKey?: string) {
+export function useFluxChat(apiKey?: string, baseUrl?: string) {
   const context = useContext(FluxChatContext);
   const effectiveApiKey = apiKey || context.apiKey;
-  const [conversationId, setConversationId] = useState<string | null>(context.conversationId);
+  const [conversationId, setConversationId] = useState<string | undefined>(context.conversationId);
+  const [sessionId, setSessionId] = useState<string | undefined>();
 
+  // Sync context
   useEffect(() => {
     if (context.conversationId !== conversationId && conversationId) {
        context.setConversationId(conversationId);
     }
   }, [conversationId, context]);
 
-  const ask = async (message: string, options?: { context?: any; conversationId?: string }) => {
-    if (!effectiveApiKey) {
-      throw new Error("FluxChat API key is required");
+  const client = useMemo(() => {
+    if (!effectiveApiKey) return null;
+    return new FluxChatClient({ apiKey: effectiveApiKey, baseUrl });
+  }, [effectiveApiKey, baseUrl]);
+
+  const ask = async (message: string, options?: AskOptions) => {
+    if (!client) {
+      throw new Error("FluxChat API key is required. Wrap your app in FluxChatContext or pass apiKey to useFluxChat.");
     }
-    // Simulation simple de l'appel réseau
-    const currentConvId = options?.conversationId || conversationId || `conv-${Math.random().toString(36).substr(2, 9)}`;
-    if (!conversationId) {
-      setConversationId(currentConvId);
+    
+    const requestOptions: AskOptions = {
+      context: options?.context,
+      conversationId: options?.conversationId || conversationId,
+      sessionId: options?.sessionId || sessionId,
+    };
+
+    const response = await client.ask(message, requestOptions);
+    
+    if (response.conversationId && !conversationId) {
+      setConversationId(response.conversationId);
     }
 
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          text: `Réponse de FluxChat pour : "${message}"`,
-          conversationId: currentConvId
-        });
-      }, 500);
-    });
+    return response;
+  };
+
+  const capturePage = async (url: string, title: string, content: string) => {
+    if (!client) throw new Error("FluxChat API key is required.");
+    return client.capturePage(url, title, content);
   };
 
   return {
     ask,
+    capturePage,
     conversationId,
-    setConversationId
+    setConversationId,
+    sessionId,
+    setSessionId,
+    client
   };
 }

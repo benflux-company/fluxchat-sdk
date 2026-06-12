@@ -20,8 +20,8 @@ export const FluxChatWidget: React.FC<Props> = ({ apiKey }) => {
     setMessage('');
     
     try {
-      const response: any = await ask(message);
-      const botMsg = { id: (Date.now() + 1).toString(), text: response.text, isUser: false };
+      const response = await ask(message);
+      const botMsg = { id: (Date.now() + 1).toString(), text: response.reply, isUser: false };
       setMessages(prev => [...prev, botMsg]);
     } catch (error) {
       console.error(error);
