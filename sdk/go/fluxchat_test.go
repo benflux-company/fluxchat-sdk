@@ -29,9 +29,12 @@ func newTestServer(statusCode int, body any) (*httptest.Server, *fluxchat.Client
 // ─── Ask ─────────────────────────────────────────────────────────────────────
 
 func TestAsk_Success(t *testing.T) {
-	srv, client := newTestServer(http.StatusOK, map[string]string{
-		"text":            "Bonjour !",
-		"conversation_id": "conv-1",
+	srv, client := newTestServer(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]string{
+			"reply":          "Bonjour !",
+			"conversationId": "conv-1",
+		},
 	})
 	defer srv.Close()
 
@@ -39,18 +42,21 @@ func TestAsk_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Text != "Bonjour !" {
-		t.Errorf("expected text 'Bonjour !', got %q", resp.Text)
+	if resp.Reply != "Bonjour !" {
+		t.Errorf("expected reply 'Bonjour !', got %q", resp.Reply)
 	}
 	if resp.ConversationID != "conv-1" {
-		t.Errorf("expected conversation_id 'conv-1', got %q", resp.ConversationID)
+		t.Errorf("expected conversationId 'conv-1', got %q", resp.ConversationID)
 	}
 }
 
 func TestAsk_WithOptions(t *testing.T) {
-	srv, client := newTestServer(http.StatusOK, map[string]string{
-		"text":            "Réponse",
-		"conversation_id": "conv-abc",
+	srv, client := newTestServer(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]string{
+			"reply":          "Réponse",
+			"conversationId": "conv-abc",
+		},
 	})
 	defer srv.Close()
 
@@ -69,8 +75,9 @@ func TestAsk_WithOptions(t *testing.T) {
 }
 
 func TestAsk_APIError(t *testing.T) {
-	srv, client := newTestServer(http.StatusUnauthorized, map[string]string{
-		"error": "Invalid API key",
+	srv, client := newTestServer(http.StatusUnauthorized, map[string]any{
+		"success": false,
+		"message": "Invalid API key",
 	})
 	defer srv.Close()
 
@@ -91,8 +98,11 @@ func TestAsk_APIError(t *testing.T) {
 
 func TestTestKey_Success(t *testing.T) {
 	srv, client := newTestServer(http.StatusOK, map[string]any{
-		"valid": true,
-		"plan":  "pro",
+		"success": true,
+		"data": map[string]any{
+			"organizationId": "org-123",
+			"scopes":         []string{"ask", "knowledge"},
+		},
 	})
 	defer srv.Close()
 
@@ -100,16 +110,16 @@ func TestTestKey_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !info.Valid {
-		t.Error("expected valid=true")
+	if info.OrganizationID != "org-123" {
+		t.Error("expected organizationId org-123")
 	}
-	if info.Plan != "pro" {
-		t.Errorf("expected plan 'pro', got %q", info.Plan)
+	if len(info.Scopes) != 2 {
+		t.Errorf("expected 2 scopes, got %d", len(info.Scopes))
 	}
 }
 
 func TestTestKey_Unauthorized(t *testing.T) {
-	srv, client := newTestServer(http.StatusUnauthorized, map[string]string{"error": "bad key"})
+	srv, client := newTestServer(http.StatusUnauthorized, map[string]any{"success": false, "message": "bad key"})
 	defer srv.Close()
 
 	_, err := client.TestKey(context.Background())
@@ -124,7 +134,10 @@ func TestGetKnowledge(t *testing.T) {
 	items := []map[string]string{
 		{"id": "1", "title": "FAQ", "content": "Contenu"},
 	}
-	srv, client := newTestServer(http.StatusOK, items)
+	srv, client := newTestServer(http.StatusOK, map[string]any{
+		"success": true,
+		"data":    items,
+	})
 	defer srv.Close()
 
 	result, err := client.GetKnowledge(context.Background())
@@ -140,12 +153,18 @@ func TestGetKnowledge(t *testing.T) {
 }
 
 func TestCreateKnowledge(t *testing.T) {
-	srv, client := newTestServer(http.StatusOK, map[string]string{
-		"id": "2", "title": "Nouveau", "content": "Contenu",
+	srv, client := newTestServer(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]string{
+			"id": "2", "title": "Nouveau", "content": "Contenu",
+		},
 	})
 	defer srv.Close()
 
-	item, err := client.CreateKnowledge(context.Background(), "Nouveau", "Contenu")
+	item, err := client.CreateKnowledge(context.Background(), fluxchat.KnowledgeItem{
+		Title:   "Nouveau",
+		Content: "Contenu",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -155,7 +174,7 @@ func TestCreateKnowledge(t *testing.T) {
 }
 
 func TestDeleteKnowledge(t *testing.T) {
-	srv, client := newTestServer(http.StatusNoContent, nil)
+	srv, client := newTestServer(http.StatusOK, map[string]any{"success": true}) // Typically DELETE returns 200 or 204
 	defer srv.Close()
 
 	err := client.DeleteKnowledge(context.Background(), "1")

@@ -35,24 +35,34 @@ func main() {
 ## Options du client
 
 ```go
-// URL de base personnalisée
+```go
+// URL de base personnalisée (par défaut: https://dev-api.fluxchat-corp.com/api/v2)
 client := fluxchat.NewClient("sk-...",
-    fluxchat.WithBaseURL("https://mon-proxy.com/v1"),
+    fluxchat.WithBaseURL("https://mon-proxy.com/api/v2"),
 )
 
-// Client HTTP personnalisé
-client := fluxchat.NewClient("sk-...",
-    fluxchat.WithHTTPClient(monHTTPClient),
+// Utiliser un JWT pour la Knowledge Base (requis pour l'administration)
+clientAdmin := fluxchat.NewClient("sk-...",
+    fluxchat.WithJWT("eyJhbGci..."),
 )
 ```
 
-## Ask avec options
+## Ask avec options et Session
 
 ```go
 resp, err := client.Ask(ctx, "Ma question",
     fluxchat.WithContext("support e-commerce"),
     fluxchat.WithConversationID("conv-abc123"),
+    fluxchat.WithSessionID("session-user-xyz"), // Important pour le contexte
 )
+
+fmt.Println(resp.Reply)
+```
+
+## Capturer une page passivement
+
+```go
+err := client.CapturePage(ctx, "https://example.com/faq", "FAQ", "Contenu de la page...")
 ```
 
 ## Vérifier la clé API
@@ -62,20 +72,26 @@ info, err := client.TestKey(ctx)
 if err != nil {
     log.Fatal(err)
 }
-fmt.Printf("Valide: %v, Plan: %s\n", info.Valid, info.Plan)
+fmt.Printf("Organisation: %s, Scopes: %v\n", info.OrganizationID, info.Scopes)
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert JWT)
 
 ```go
 // Lister
 items, err := client.GetKnowledge(ctx)
 
 // Créer
-item, err := client.CreateKnowledge(ctx, "FAQ", "Contenu de la FAQ...")
+newItem := fluxchat.KnowledgeItem{
+    Title:   "FAQ",
+    Content: "Contenu de la FAQ...",
+    Category: "support",
+}
+item, err := client.CreateKnowledge(ctx, newItem)
 
-// Mettre à jour
-updated, err := client.UpdateKnowledge(ctx, item.ID, "FAQ v2", "Nouveau contenu")
+// Mettre à jour (patch partiel)
+patch := fluxchat.KnowledgeItem{Title: "FAQ v2"}
+updated, err := client.UpdateKnowledge(ctx, item.ID, patch)
 
 // Supprimer
 err = client.DeleteKnowledge(ctx, item.ID)
