@@ -29,11 +29,21 @@ const ICONS = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
 };
 
-interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target'>> {
+interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target' | 'platformApi'>> {
   avatarUrl?: string;
   logoUrl?: string;
   context?: string;
   target?: string | HTMLElement;
+  platformApi?: WidgetOptions['platformApi'];
+  autoCapture: boolean;
+}
+
+// ─── Platform API auto-enrichment types ────────────────────────────────────
+
+interface EndpointInfo {
+  path: string;
+  summary: string;
+  keywords: string;
 }
 
 function resolve(options: WidgetOptions): Resolved {
@@ -58,11 +68,13 @@ function resolve(options: WidgetOptions): Resolved {
     showBranding: options.showBranding ?? true,
     autoEnvDetect: options.autoEnvDetect ?? true,
     autoContext: options.autoContext ?? true,
+    autoCapture: options.autoCapture ?? true,
     autoCrawl: options.autoCrawl ?? false,
     avatarUrl: options.avatarUrl,
     logoUrl: options.logoUrl,
     context: options.context,
     target: options.target,
+    platformApi: options.platformApi,
   };
 }
 
@@ -74,7 +86,7 @@ function renderMarkup(text: string): string {
     .replace(/>/g, '&gt;');
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
 }
 
 export class FluxChatWidget implements WidgetInstance {
@@ -87,11 +99,24 @@ export class FluxChatWidget implements WidgetInstance {
   private isOpen = false;
   private busy = false;
   private conversationId = '';
+  private sessionId = '';
   private theme: 'light' | 'dark' = 'light';
+  private platformEndpoints: EndpointInfo[] = [];
+  private lastPlatformData = '';
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
     this.isDevMode = detectEnv(this.o.apiKey, this.o.autoEnvDetect) === 'dev';
+    this.sessionId = (() => {
+      try {
+        const k = `fcw_sid_${this.o.apiKey.slice(-8)}`;
+        const stored = localStorage.getItem(k);
+        if (stored) return stored;
+        const id = crypto.randomUUID();
+        localStorage.setItem(k, id);
+        return id;
+      } catch { return crypto.randomUUID(); }
+    })();
     if (this.isDevMode) {
       // eslint-disable-next-line no-console
       console.debug('[FluxChatWidget] DEV mode — requests will include X-FluxChat-Env: development');
@@ -100,6 +125,8 @@ export class FluxChatWidget implements WidgetInstance {
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
     if (this.o.autoCrawl) this.triggerAutoCrawl();
+    if (this.o.autoCapture) this.startPassiveCapture();
+    if (this.o.platformApi?.baseUrl) void this.initPlatformApi();
   }
 
   // ── Public API ──────────────────────────────────────────
@@ -217,6 +244,319 @@ export class FluxChatWidget implements WidgetInstance {
     return this.esc((this.o.assistantName[0] ?? 'A').toUpperCase());
   }
 
+  // ── Passive page capture ────────────────────────────────
+  // Captures the rendered DOM of every page the user visits and sends it to
+  // FluxChat so the bot learns the entire site without any configuration.
+  // Works on static sites AND SPAs (intercepts pushState / replaceState).
+
+  private readonly capturedUrls = new Set<string>();
+
+  private startPassiveCapture(): void {
+    if (typeof window === 'undefined') return;
+
+    // Intercept all fetch/XHR API calls made by the host app
+    this.startApiInterception();
+
+    // Capture the current page on load
+    void this.captureCurrentPage();
+
+    // SPA route changes via History API
+    const origPush = history.pushState.bind(history);
+    history.pushState = (...args: Parameters<typeof history.pushState>) => {
+      origPush(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+    const origReplace = history.replaceState.bind(history);
+    history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
+      origReplace(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+
+    // Hash-based routing and browser back/forward
+    window.addEventListener('popstate', () => setTimeout(() => void this.captureCurrentPage(), 400));
+    window.addEventListener('hashchange', () => void this.captureCurrentPage());
+  }
+
+  private async captureCurrentPage(): Promise<void> {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+    const url = window.location.href;
+    if (this.capturedUrls.has(url)) return; // once per URL per session
+    this.capturedUrls.add(url);
+
+    const title = document.title;
+    const container = document.querySelector('main') ?? document.body;
+    const text = (container as HTMLElement).innerText
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 4000);
+
+    if (!text || text.length < 80) return; // skip empty / not-yet-rendered pages
+
+    // Capture visible links so the bot knows the direct URL of each item on this page
+    // (sermons, events, products, recipes, articles — any content type).
+    const links = Array.from(container.querySelectorAll('a[href]'))
+      .map(a => {
+        const el = a as HTMLAnchorElement;
+        const label = el.innerText?.replace(/\s+/g, ' ').trim();
+        const href = el.href;
+        return label && href && !href.startsWith('javascript') ? `[${label}](${href})` : null;
+      })
+      .filter(Boolean)
+      .slice(0, 60) // keep the first 60 links per page
+      .join('\n');
+
+    const content = links
+      ? `${text}\n\nLiens sur cette page:\n${links}`.substring(0, 6000)
+      : text;
+
+    this.sendCapture({ type: 'page', url, title, content });
+  }
+
+  // ── Universal API interception ─────────────────────────
+  // Intercepts window.fetch and XMLHttpRequest to auto-capture every
+  // JSON API response the host app makes, regardless of the library used
+  // (axios, React Query, SWR, tRPC, GraphQL, etc.).
+
+  private readonly capturedApiHashes = new Set<string>();
+  // URLs to never capture: auth, uploads, binaries, streaming, internal
+  private readonly SKIP_URL_RE = /\/(login|logout|auth|token|refresh|signup|register|upload|avatar|thumbnail|image|blob|socket\.io|ws|sse|metrics|health|ping|favicon)/i;
+  private readonly SKIP_EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|pdf|zip|mp4|mp3|csv)(\?|$)/i;
+
+  private startApiInterception(): void {
+    this.interceptFetch();
+    this.interceptXhr();
+    this.captureLocalStorage();
+  }
+
+  private interceptFetch(): void {
+    const origFetch = globalThis.fetch?.bind(globalThis);
+    if (!origFetch) return;
+    const self = this;
+    globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const res = await origFetch(input, init);
+      try {
+        const rawUrl = typeof input === 'string' ? input
+          : input instanceof URL ? input.href
+          : (input as Request).url;
+        const method = (init?.method ?? 'GET').toUpperCase();
+        if (method === 'GET' && !self.SKIP_URL_RE.test(rawUrl) && !self.SKIP_EXT_RE.test(rawUrl)) {
+          const ct = res.headers.get('content-type') ?? '';
+          if (ct.includes('application/json') || ct.includes('text/json')) {
+            res.clone().json().then((data: unknown) => self.captureApiData(rawUrl, data)).catch(() => undefined);
+          }
+        }
+      } catch { /* never break the host app's fetch */ }
+      return res;
+    };
+  }
+
+  private interceptXhr(): void {
+    if (typeof XMLHttpRequest === 'undefined') return;
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+    const self = this;
+
+    XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: [boolean?, string?, string?]) {
+      (this as any)._fcUrl = String(url);
+      (this as any)._fcMethod = method;
+      return origOpen.apply(this, [method, url, ...rest] as Parameters<typeof origOpen>);
+    };
+
+    XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
+      this.addEventListener('load', function () {
+        try {
+          const url: string = (this as any)._fcUrl ?? '';
+          const method: string = ((this as any)._fcMethod ?? 'GET').toUpperCase();
+          if (method !== 'GET') return;
+          if (self.SKIP_URL_RE.test(url) || self.SKIP_EXT_RE.test(url)) return;
+          const ct = this.getResponseHeader('content-type') ?? '';
+          if (!ct.includes('application/json') && !ct.includes('text/json')) return;
+          const data = JSON.parse(this.responseText) as unknown;
+          self.captureApiData(url, data);
+        } catch { /* ignore */ }
+      });
+      return origSend.apply(this, [body] as Parameters<typeof origSend>);
+    };
+  }
+
+  private captureApiData(apiUrl: string, data: unknown): void {
+    if (!data || typeof data !== 'object') return;
+    const str = JSON.stringify(data);
+    // Skip trivial responses and huge payloads (images/blobs encoded as base64, etc.)
+    if (str.length < 100 || str.length > 80_000) return;
+
+    const hash = this.captureHash(str);
+    if (this.capturedApiHashes.has(hash)) return;
+    this.capturedApiHashes.add(hash);
+
+    let absUrl = apiUrl;
+    try { absUrl = new URL(apiUrl, globalThis.location?.origin ?? '').href; } catch { /* keep relative */ }
+
+    this.sendCapture({
+      type: 'api',
+      url: absUrl,
+      title: apiUrl,
+      content: str,
+      pageUrl: globalThis.location?.href,
+      pageTitle: globalThis.document?.title,
+    });
+  }
+
+  private captureLocalStorage(): void {
+    try {
+      const ls = globalThis.localStorage;
+      if (!ls || ls.length === 0) return;
+      const pairs: string[] = [];
+      for (let i = 0; i < ls.length; i++) {
+        const key = ls.key(i);
+        if (!key) continue;
+        if (/token|auth|jwt|session|password|secret|api.?key|csrf|nonce|theme|lang|color|dark|locale|sidebar/i.test(key)) continue;
+        const val = ls.getItem(key);
+        if (!val || val.length < 20 || val.length > 8_000) continue;
+        pairs.push(`${key}: ${val.substring(0, 500)}`);
+      }
+      if (!pairs.length) return;
+      const content = pairs.join('\n');
+      const hash = this.captureHash(content);
+      if (this.capturedApiHashes.has(hash)) return;
+      this.capturedApiHashes.add(hash);
+      this.sendCapture({
+        type: 'cache',
+        url: `cache://localStorage@${globalThis.location?.host ?? 'unknown'}`,
+        title: 'localStorage',
+        content,
+        pageUrl: globalThis.location?.href,
+        pageTitle: globalThis.document?.title,
+      });
+    } catch { /* ignore — e.g. Safari ITP in private mode */ }
+  }
+
+  /** Fire-and-forget POST to the passive capture endpoint. */
+  private sendCapture(payload: {
+    type: 'page' | 'api' | 'cache';
+    url: string;
+    title?: string;
+    content: string;
+    pageUrl?: string;
+    pageTitle?: string;
+  }): void {
+    const body = JSON.stringify(payload);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-API-Key': this.o.apiKey,
+    };
+    // keepalive keeps the request alive even when the page is unloading (like sendBeacon but with custom headers)
+    fetch(`${this.o.baseUrl}/public/bot/pages`, {
+      method: 'POST',
+      headers,
+      body,
+      keepalive: true,
+    }).catch(() => undefined);
+  }
+
+  /** FNV-1a-like hash for client-side deduplication (non-crypto, fast). */
+  private captureHash(str: string): string {
+    let h = 0x811c9dc5;
+    const s = str.substring(0, 3000);
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16);
+  }
+
+  // ── Platform API auto-enrichment ───────────────────────
+
+  private async initPlatformApi(): Promise<void> {
+    const base = this.o.platformApi!.baseUrl.replace(/\/+$/, '');
+    const candidates = [
+      '/openapi.json', '/swagger.json', '/api-docs.json',
+      '/api/openapi.json', '/api/swagger.json', '/docs/swagger.json',
+    ];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) continue;
+        const spec: unknown = await res.json();
+        this.parsePlatformSpec(spec, base);
+        if (this.platformEndpoints.length > 0) return;
+      } catch { /* try next */ }
+    }
+  }
+
+  private parsePlatformSpec(spec: unknown, base: string): void {
+    const paths = (spec as Record<string, unknown>)?.paths as Record<string, Record<string, unknown>> | undefined;
+    if (!paths) return;
+    for (const [path, methods] of Object.entries(paths)) {
+      if (path.includes('{')) continue; // skip endpoints needing a path param
+      const op = methods['get'] as Record<string, unknown> | undefined;
+      if (!op) continue;
+      const tags = Array.isArray(op['tags']) ? (op['tags'] as string[]).join(' ') : '';
+      this.platformEndpoints.push({
+        path: `${base}${path}`,
+        summary: String(op['summary'] ?? op['operationId'] ?? ''),
+        keywords: `${op['summary'] ?? ''} ${op['description'] ?? ''} ${tags}`.toLowerCase(),
+      });
+    }
+  }
+
+  private getPlatformAuthHeaders(): Record<string, string> {
+    if (typeof localStorage === 'undefined') return {};
+    const keys = this.o.platformApi?.authTokenKeys ?? [
+      'member_token', 'admin_token', 'token', 'auth_token', 'access_token',
+    ];
+    for (const key of keys) {
+      const val = localStorage.getItem(key);
+      if (val) return { Authorization: `Bearer ${val}` };
+    }
+    return {};
+  }
+
+  private isFollowUp(text: string): boolean {
+    const n = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return text.trim().length < 40 && (
+      /^[?!]+$/.test(n.trim()) ||
+      /lequel|lesquels|premier|deuxi|troisieme|detail|plus|encore|montre|donne|liste|combien|comment|pourquoi|expliqu|precis/.test(n)
+    );
+  }
+
+  private async enrichWithPlatformData(question: string): Promise<string> {
+    if (!this.platformEndpoints.length) return '';
+
+    // Reuse last platform data for follow-up questions ("lesquels ?", "le premier", etc.)
+    if (this.isFollowUp(question) && this.lastPlatformData) {
+      return this.lastPlatformData;
+    }
+
+    const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if (!words.length) return '';
+
+    const scored = this.platformEndpoints
+      .map(ep => ({ ep, score: words.filter(w => ep.keywords.includes(w)).length }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    if (!scored.length) return '';
+
+    const parts: string[] = [];
+    await Promise.allSettled(scored.map(async ({ ep }) => {
+      try {
+        const res = await fetch(ep.path, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) return;
+        const json: unknown = await res.json();
+        const data = (json as Record<string, unknown>)?.data ?? json;
+        const str = JSON.stringify(data).substring(0, 2500);
+        parts.push(`${ep.summary || ep.path}:\n${str}`);
+      } catch { /* silent */ }
+    }));
+
+    const result = parts.join('\n\n');
+    if (result) this.lastPlatformData = result;
+    return result;
+  }
+
   // ── Auto-crawl ──────────────────────────────────────────
   private triggerAutoCrawl(): void {
     if (typeof globalThis.window === 'undefined') return;
@@ -301,15 +641,20 @@ export class FluxChatWidget implements WidgetInstance {
     // window.fluxchatContext + DOM data is captured fresh on every send.
     // Static context (this.o.context) is appended after so auto data takes priority.
     const autoCtx = this.buildAutoContext();
-    const mergedContext = [autoCtx, this.o.context]
+    // Enrich with live platform API data when platformApi is configured
+    const platformData = this.o.platformApi?.baseUrl
+      ? await this.enrichWithPlatformData(message)
+      : '';
+    const mergedContext = [autoCtx, platformData ? `DONNÉES EN DIRECT:\n${platformData}` : '', this.o.context]
       .filter(Boolean)
       .join('\n\n')
-      .substring(0, 8000) || undefined;
+      .substring(0, 12000) || undefined;
 
     const payload = {
       message,
       context: mergedContext,
       conversationId: this.conversationId || undefined,
+      sessionId: this.sessionId,
     };
 
     if (this.isDevMode) {
