@@ -12,46 +12,55 @@ actor HTTPHelper {
         self.session = session
     }
 
-    private var defaultHeaders: [String: String] {
-        [
-            "Authorization": "Bearer \(apiKey)",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        ]
+    // MARK: - Public HTTP methods
+
+    func get<T: Decodable>(_ path: String, jwtToken: String? = nil) async throws -> T {
+        let req = try buildRequest(method: "GET", path: path, body: nil as String?, jwtToken: jwtToken)
+        return try await performEnveloped(req)
     }
 
-    func get<T: Decodable>(_ path: String) async throws -> T {
-        let req = try buildRequest(method: "GET", path: path, body: nil as String?)
-        return try await perform(req)
+    func post<B: Encodable, T: Decodable>(_ path: String, body: B, jwtToken: String? = nil) async throws -> T {
+        let req = try buildRequest(method: "POST", path: path, body: body, jwtToken: jwtToken)
+        return try await performEnveloped(req)
     }
 
-    func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
-        let req = try buildRequest(method: "POST", path: path, body: body)
-        return try await perform(req)
-    }
-
-    func put<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
-        let req = try buildRequest(method: "PUT", path: path, body: body)
-        return try await perform(req)
-    }
-
-    func delete(_ path: String) async throws {
-        let req = try buildRequest(method: "DELETE", path: path, body: nil as String?)
+    func postVoid<B: Encodable>(_ path: String, body: B, jwtToken: String? = nil) async throws {
+        let req = try buildRequest(method: "POST", path: path, body: body, jwtToken: jwtToken)
         let (_, response) = try await fetch(req)
-        try validateStatus(response)
+        try validateStatus(response, data: Data())
     }
 
-    // MARK: - Private
+    func patch<B: Encodable, T: Decodable>(_ path: String, body: B, jwtToken: String? = nil) async throws -> T {
+        let req = try buildRequest(method: "PATCH", path: path, body: body, jwtToken: jwtToken)
+        return try await performEnveloped(req)
+    }
+
+    func delete(_ path: String, jwtToken: String? = nil) async throws {
+        let req = try buildRequest(method: "DELETE", path: path, body: nil as String?, jwtToken: jwtToken)
+        let (_, response) = try await fetch(req)
+        try validateStatus(response, data: Data())
+    }
+
+    // MARK: - Private helpers
 
     private func buildRequest<B: Encodable>(
-        method: String, path: String, body: B?
+        method: String, path: String, body: B?, jwtToken: String?
     ) throws -> URLRequest {
         guard let url = URL(string: baseURL + path) else {
             throw FluxChatNetworkError("Invalid URL: \(baseURL + path)")
         }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        defaultHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        // Auth routing: JWT for admin routes, X-API-Key for public routes
+        if let jwt = jwtToken {
+            req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        } else {
+            req.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        }
+
         if let body {
             do { req.httpBody = try JSONEncoder().encode(body) }
             catch { throw FluxChatNetworkError("Failed to encode request body", underlying: error) }
@@ -59,14 +68,19 @@ actor HTTPHelper {
         return req
     }
 
-    private func perform<T: Decodable>(_ req: URLRequest) async throws -> T {
+    /// Decodes a response wrapped in { "success": true, "data": ... }
+    private func performEnveloped<T: Decodable>(_ req: URLRequest) async throws -> T {
         let (data, response) = try await fetch(req)
-        try validateStatus(response)
+        try validateStatus(response, data: data)
+        let decoder = JSONDecoder()
         do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw FluxChatNetworkError("Failed to decode response", underlying: error)
-        }
+            let envelope = try decoder.decode(APIEnvelope<T>.self, from: data)
+            if let payload = envelope.data {
+                return payload
+            }
+            throw FluxChatNetworkError("Response envelope contained no data")
+        } catch let e as FluxChatNetworkError { throw e }
+        catch { throw FluxChatNetworkError("Failed to decode response", underlying: error) }
     }
 
     private func fetch(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -80,10 +94,18 @@ actor HTTPHelper {
         catch { throw FluxChatNetworkError("Network request failed", underlying: error) }
     }
 
-    private func validateStatus(_ response: HTTPURLResponse) throws {
+    private func validateStatus(_ response: HTTPURLResponse, data: Data) throws {
         let code = response.statusCode
         guard (200..<300).contains(code) else {
-            throw FluxChatApiError(statusCode: code, apiMessage: HTTPURLResponse.localizedString(forStatusCode: code))
+            // Try to extract error message from envelope
+            let apiMsg: String
+            if let env = try? JSONDecoder().decode(APIEnvelope<String>.self, from: data),
+               let msg = env.message {
+                apiMsg = msg
+            } else {
+                apiMsg = HTTPURLResponse.localizedString(forStatusCode: code)
+            }
+            throw FluxChatApiError(statusCode: code, apiMessage: apiMsg)
         }
     }
 }
@@ -91,26 +113,60 @@ actor HTTPHelper {
 /// Client Knowledge CRUD, accessible via `FluxChatClient.knowledge`.
 public final class KnowledgeClient {
     let http: HTTPHelper
+    private let jwtToken: String?
 
-    init(http: HTTPHelper) { self.http = http }
+    init(http: HTTPHelper, jwtToken: String? = nil) {
+        self.http = http
+        self.jwtToken = jwtToken
+    }
 
+    /// Liste tous les éléments de la base de connaissance (requiert un JWT).
     public func list() async throws -> [KnowledgeItem] {
-        try await http.get("/knowledge")
+        try await http.get("/bot/knowledge", jwtToken: jwtToken)
     }
 
+    /// Récupère un élément par son ID (requiert un JWT).
     public func get(id: String) async throws -> KnowledgeItem {
-        try await http.get("/knowledge/\(id)")
+        try await http.get("/bot/knowledge/\(id)", jwtToken: jwtToken)
     }
 
-    public func create(title: String, content: String) async throws -> KnowledgeItem {
-        try await http.post("/knowledge", body: KnowledgeRequest(title: title, content: content))
+    /// Crée un nouvel élément (requiert un JWT).
+    public func create(
+        title: String,
+        content: String,
+        category: String? = nil,
+        keywords: [String]? = nil
+    ) async throws -> KnowledgeItem {
+        let body = KnowledgeCreateRequest(
+            title: title,
+            content: content,
+            category: category,
+            keywords: keywords
+        )
+        return try await http.post("/bot/knowledge", body: body, jwtToken: jwtToken)
     }
 
-    public func update(id: String, title: String, content: String) async throws -> KnowledgeItem {
-        try await http.put("/knowledge/\(id)", body: KnowledgeRequest(title: title, content: content))
+    /// Met à jour un élément existant avec un patch partiel (requiert un JWT).
+    public func update(
+        id: String,
+        title: String? = nil,
+        content: String? = nil,
+        category: String? = nil,
+        keywords: [String]? = nil,
+        isActive: Bool? = nil
+    ) async throws -> KnowledgeItem {
+        let body = KnowledgePatchRequest(
+            title: title,
+            content: content,
+            category: category,
+            keywords: keywords,
+            isActive: isActive
+        )
+        return try await http.patch("/bot/knowledge/\(id)", body: body, jwtToken: jwtToken)
     }
 
+    /// Supprime un élément par son ID (requiert un JWT).
     public func delete(id: String) async throws {
-        try await http.delete("/knowledge/\(id)")
+        try await http.delete("/bot/knowledge/\(id)", jwtToken: jwtToken)
     }
 }
