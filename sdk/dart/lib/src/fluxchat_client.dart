@@ -12,12 +12,15 @@ import 'models.dart';
 /// final result = await client.ask('Bonjour !');
 /// print(result.reply);
 ///
-/// // Knowledge base
-/// await client.knowledge.create('FAQ', 'Contenu...');
+/// // Capturer une page
+/// await client.capturePage(url: 'https://...', title: 'FAQ', content: '...');
+///
+/// // Knowledge base (requiert un JWT)
+/// final kb = client.knowledge(jwtToken: 'eyJhbGci...');
+/// await kb.create('FAQ', 'Contenu...');
 /// ```
 class FluxChat {
   late final _HttpHelper _http;
-  late final KnowledgeClient knowledge;
 
   FluxChat({
     required String apiKey,
@@ -26,31 +29,56 @@ class FluxChat {
   }) {
     _http = _HttpHelper(
       apiKey: apiKey,
-      baseUrl: (baseUrl ?? 'https://api.fluxchat.io/v1').replaceAll(RegExp(r'/$'), ''),
+      baseUrl: (baseUrl ?? 'https://dev-api.fluxchat-corp.com/api/v2')
+          .replaceAll(RegExp(r'/$'), ''),
       httpClient: httpClient ?? http.Client(),
     );
-    knowledge = KnowledgeClient(_http);
   }
 
   // ─── Core ─────────────────────────────────────────────────────────────────
 
   /// Envoie un message à FluxChat et retourne la réponse.
+  ///
+  /// [sessionId] permet de maintenir le contexte entre plusieurs appels.
   Future<AskResponse> ask(
     String message, {
     String? context,
     String? conversationId,
+    String? sessionId,
   }) async {
     final payload = <String, dynamic>{'message': message};
     if (context != null) payload['context'] = context;
-    if (conversationId != null) payload['conversation_id'] = conversationId;
+    if (conversationId != null) payload['conversationId'] = conversationId;
+    if (sessionId != null) payload['sessionId'] = sessionId;
 
-    final data = await _http.post('/ask', payload) as Map<String, dynamic>;
-    return AskResponse.fromJson(data);
+    final data = await _http.post('/public/bot/ask', payload);
+    return AskResponse.fromJson(data as Map<String, dynamic>);
   }
 
   /// Vérifie la clé API et retourne les informations associées.
   Future<KeyInfo> testKey() async {
-    final data = await _http.get('/test-key') as Map<String, dynamic>;
-    return KeyInfo.fromJson(data);
+    final data = await _http.get('/public/bot/test');
+    return KeyInfo.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Capture passivement le contenu d'une page pour la base de connaissance.
+  Future<void> capturePage({
+    required String url,
+    required String title,
+    required String content,
+  }) async {
+    await _http.postVoid('/public/bot/pages', {
+      'url': url,
+      'title': title,
+      'content': content,
+    });
+  }
+
+  // ─── Knowledge ────────────────────────────────────────────────────────────
+
+  /// Retourne un client pour les opérations CRUD Knowledge Base.
+  /// [jwtToken] est requis pour toutes les opérations d'administration.
+  KnowledgeClient knowledge({required String jwtToken}) {
+    return KnowledgeClient(_http, jwtToken: jwtToken);
   }
 }

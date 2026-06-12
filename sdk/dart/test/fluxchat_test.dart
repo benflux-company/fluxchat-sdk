@@ -14,15 +14,25 @@ FluxChat buildMockClient(int status, Object responseBody) {
   return FluxChat(apiKey: 'test-key', httpClient: mockClient);
 }
 
+Map<String, dynamic> envelope(dynamic data) => {
+      'success': true,
+      'data': data,
+    };
+
+Map<String, dynamic> errorEnvelope(String message) => {
+      'success': false,
+      'message': message,
+    };
+
 void main() {
   // ─── ask() ──────────────────────────────────────────────────────────────────
 
   group('ask()', () {
     test('retourne une AskResponse valide', () async {
-      final client = buildMockClient(200, {
-        'text': 'Bonjour !',
-        'conversation_id': 'conv-1',
-      });
+      final client = buildMockClient(200, envelope({
+        'reply': 'Bonjour !',
+        'conversationId': 'conv-1',
+      }));
 
       final result = await client.ask('Bonjour');
 
@@ -30,28 +40,30 @@ void main() {
       expect(result.conversationId, equals('conv-1'));
     });
 
-    test('accepte context et conversationId', () async {
-      final client = buildMockClient(200, {
-        'text': 'Réponse',
-        'conversation_id': 'conv-abc',
-      });
+    test('accepte context, conversationId et sessionId', () async {
+      final client = buildMockClient(200, envelope({
+        'reply': 'Réponse',
+        'conversationId': 'conv-abc',
+      }));
 
       final result = await client.ask(
         'Question',
         context: 'support',
         conversationId: 'conv-abc',
+        sessionId: 'session-xyz',
       );
 
       expect(result.conversationId, equals('conv-abc'));
     });
 
     test('lève FluxChatApiException sur erreur 401', () async {
-      final client = buildMockClient(401, {'error': 'Invalid key'});
+      final client = buildMockClient(401, errorEnvelope('Invalid key'));
 
       expect(
         () => client.ask('test'),
         throwsA(isA<FluxChatApiException>()
-            .having((e) => e.statusCode, 'statusCode', 401)),
+            .having((e) => e.statusCode, 'statusCode', 401)
+            .having((e) => e.apiMessage, 'apiMessage', 'Invalid key')),
       );
     });
   });
@@ -60,19 +72,19 @@ void main() {
 
   group('testKey()', () {
     test('retourne KeyInfo valide', () async {
-      final client = buildMockClient(200, {
-        'organization_id': 'org-123',
-        'scopes': ['read', 'write'],
-      });
+      final client = buildMockClient(200, envelope({
+        'organizationId': 'org-123',
+        'scopes': ['ask', 'knowledge'],
+      }));
 
       final info = await client.testKey();
 
       expect(info.organizationId, equals('org-123'));
-      expect(info.scopes, containsAll(['read', 'write']));
+      expect(info.scopes, containsAll(['ask', 'knowledge']));
     });
 
     test('lève FluxChatApiException sur erreur 403', () async {
-      final client = buildMockClient(403, {'error': 'Forbidden'});
+      final client = buildMockClient(403, errorEnvelope('Forbidden'));
 
       expect(
         () => client.testKey(),
@@ -85,11 +97,12 @@ void main() {
 
   group('knowledge.list()', () {
     test('retourne une liste de KnowledgeItem', () async {
-      final client = buildMockClient(200, [
+      final client = buildMockClient(200, envelope([
         {'id': '1', 'title': 'FAQ', 'content': 'Contenu'}
-      ]);
+      ]));
 
-      final items = await client.knowledge.list();
+      final kb = client.knowledge(jwtToken: 'test-jwt');
+      final items = await kb.list();
 
       expect(items.length, equals(1));
       expect(items.first.title, equals('FAQ'));
@@ -98,13 +111,14 @@ void main() {
 
   group('knowledge.create()', () {
     test('retourne le KnowledgeItem créé', () async {
-      final client = buildMockClient(200, {
+      final client = buildMockClient(200, envelope({
         'id': '2',
         'title': 'Nouveau',
         'content': 'Mon contenu',
-      });
+      }));
 
-      final item = await client.knowledge.create('Nouveau', 'Mon contenu');
+      final kb = client.knowledge(jwtToken: 'test-jwt');
+      final item = await kb.create('Nouveau', 'Mon contenu');
 
       expect(item.id, equals('2'));
       expect(item.title, equals('Nouveau'));
@@ -113,9 +127,10 @@ void main() {
 
   group('knowledge.delete()', () {
     test('ne lève pas d\'exception sur succès', () async {
-      final client = buildMockClient(204, '');
+      final client = buildMockClient(200, envelope(null));
 
-      await expectLater(client.knowledge.delete('1'), completes);
+      final kb = client.knowledge(jwtToken: 'test-jwt');
+      await expectLater(kb.delete('1'), completes);
     });
   });
 
@@ -125,6 +140,7 @@ void main() {
     test('toString contient le statusCode', () {
       final e = FluxChatApiException(404, 'Not found');
       expect(e.toString(), contains('404'));
+      expect(e.toString(), contains('Not found'));
     });
   });
 

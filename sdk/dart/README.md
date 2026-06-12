@@ -26,18 +26,32 @@ import 'package:fluxchat/fluxchat.dart';
 
 final client = FluxChat(apiKey: 'VOTRE_API_KEY');
 
-final result = await client.ask('Bonjour !');
-print(result.reply);
-print(result.conversationId);
+final response = await client.ask('Bonjour !');
+print(response.reply);
+print(response.conversationId);
 ```
 
-## Ask avec options
+## Ask avec paramètres et Session
+
+Pour maintenir le contexte entre plusieurs messages, utilisez `sessionId`.
 
 ```dart
-final result = await client.ask(
+final response = await client.ask(
   'Quelle est votre politique de retour ?',
   context: 'E-commerce support',
   conversationId: 'conv-abc123',
+  sessionId: 'session-user-xyz',
+);
+print(response.reply);
+```
+
+## Capturer une page passivement
+
+```dart
+await client.capturePage(
+  url: 'https://example.com/faq',
+  title: 'FAQ',
+  content: 'Contenu visible de la page...',
 );
 ```
 
@@ -45,27 +59,38 @@ final result = await client.ask(
 
 ```dart
 final info = await client.testKey();
-print('Organisation : ${info.organizationId}');
-print('Scopes : ${info.scopes}');
+print('Organisation: ${info.organizationId}');
+print('Scopes: ${info.scopes.join(', ')}');
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert un JWT)
 
 ```dart
+// Obtenir un client Knowledge avec votre JWT
+final kb = client.knowledge(jwtToken: 'eyJhbGci...');
+
 // Lister
-final items = await client.knowledge.list();
+final items = await kb.list();
 
 // Récupérer par ID
-final item = await client.knowledge.get('abc123');
+final item = await kb.get('abc123');
 
 // Créer
-final newItem = await client.knowledge.create('FAQ', 'Contenu...');
+final newItem = await kb.create(
+  'FAQ',
+  'Contenu...',
+  category: 'support',
+  keywords: ['retour', 'remboursement'],
+);
 
-// Mettre à jour
-final updated = await client.knowledge.update(newItem.id!, 'FAQ v2', 'Nouveau contenu');
+// Mettre à jour (patch partiel)
+final updated = await kb.update(
+  newItem.id!,
+  title: 'FAQ v2',
+);
 
 // Supprimer
-await client.knowledge.delete(newItem.id!);
+await kb.delete(newItem.id!);
 ```
 
 ## Gestion des erreurs
