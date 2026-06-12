@@ -17,38 +17,62 @@ using FluxChat;
 var client = new FluxChatClient("VOTRE_API_KEY");
 
 // Envoyer un message
-var response = await client.AskAsync("Bonjour, comment puis-je vous aider ?");
-Console.WriteLine(response.Text);
+var response = await client.AskAsync("Bonjour !");
+Console.WriteLine(response.Reply);
+Console.WriteLine(response.ConversationId);
 
-// Avec contexte et ID de conversation
+// URL personnalisée (par défaut : https://dev-api.fluxchat-corp.com/api/v2)
+var client2 = new FluxChatClient("sk-...", "https://mon-proxy.com/api/v2");
+
+// Avec contexte, ID de conversation et Session
 var response2 = await client.AskAsync(
     message: "Quelle est votre politique de retour ?",
     context: "E-commerce support",
-    conversationId: "conv-abc123"
+    conversationId: "conv-abc123",
+    sessionId: "session-user-xyz"
+);
+
+// Capturer une page passivement
+await client.CapturePageAsync(
+    url: "https://example.com/faq",
+    title: "FAQ",
+    content: "Contenu visible de la page..."
 );
 ```
 
 ## Vérifier la clé API
 
 ```csharp
-bool isValid = await client.TestKeyAsync();
-Console.WriteLine(isValid ? "Clé valide ✅" : "Clé invalide ❌");
+var info = await client.TestKeyAsync();
+Console.WriteLine($"Organisation: {info.OrganizationId}");
+Console.WriteLine($"Scopes: {string.Join(", ", info.Scopes)}");
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert un JWT)
 
 ```csharp
+// Obtenir un client Knowledge avec votre JWT
+var kb = client.Knowledge("eyJhbGci...");
+
 // Lister
-var items = await client.GetKnowledgeAsync();
+var items = await kb.ListAsync();
 
 // Créer
-var newItem = await client.CreateKnowledgeAsync("FAQ", "Contenu de la FAQ...");
+var newItem = await kb.CreateAsync(
+    title: "FAQ", 
+    content: "Contenu...",
+    category: "support",
+    keywords: new[] { "retour", "remboursement" }
+);
 
-// Mettre à jour
-var updated = await client.UpdateKnowledgeAsync(newItem.Id!, "FAQ v2", "Nouveau contenu");
+// Mettre à jour (patch partiel)
+var updated = await kb.UpdateAsync(
+    id: newItem.Id, 
+    title: "FAQ v2"
+);
 
 // Supprimer
-await client.DeleteKnowledgeAsync(newItem.Id!);
+await kb.DeleteAsync(newItem.Id);
 ```
 
 ## Gestion des erreurs
