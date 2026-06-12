@@ -22,50 +22,64 @@ echo $response['text'];
 ## Options du constructeur
 
 ```php
-// URL de base personnalisée
-$client = new FluxChat('sk-...', 'https://mon-proxy.com/v1');
+// URL de base personnalisée (par défaut : https://dev-api.fluxchat-corp.com/api/v2)
+$client = new FluxChat('sk-...', 'https://mon-proxy.com/api/v2');
 ```
 
-## Ask avec options
+## Ask avec options et Session
+
+Pour maintenir le contexte d'une conversation entre plusieurs requêtes, utilisez `sessionId`.
 
 ```php
 $response = $client->ask(
     message: 'Quelle est votre politique de retour ?',
     context: 'E-commerce support',
-    conversationId: 'conv-abc123'
+    conversationId: 'conv-abc123',
+    sessionId: 'session-user-xyz'
 );
 
-echo $response['text'];
-echo $response['conversation_id'];
+echo $response['reply'];
+echo $response['conversationId'];
+```
+
+## Capturer une page passivement
+
+```php
+$client->capturePage(
+    url: 'https://example.com/faq',
+    title: 'FAQ',
+    content: 'Contenu visible de la page...'
+);
 ```
 
 ## Vérifier la clé API
 
 ```php
 $info = $client->testKey();
-
-if ($info['valid']) {
-    echo "Clé valide ! Plan : " . $info['plan'];
-}
+echo "Organisation : " . $info['organizationId'];
+print_r($info['scopes']);
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert un JWT)
 
 ```php
+// Instancier le client Knowledge avec votre JWT
+$knowledge = $client->knowledge('votre_jwt_token');
+
 // Lister tous les éléments
-$items = $client->knowledge()->list();
+$items = $knowledge->list();
 
 // Récupérer un élément par ID
-$item = $client->knowledge()->get('abc123');
+$item = $knowledge->get('abc123');
 
 // Créer un nouvel élément
-$newItem = $client->knowledge()->create('FAQ', 'Contenu de la FAQ...');
+$newItem = $knowledge->create('FAQ', 'Contenu...', 'support', ['retour', 'remboursement']);
 
-// Mettre à jour
-$updated = $client->knowledge()->update($newItem['id'], 'FAQ v2', 'Nouveau contenu');
+// Mettre à jour (champs partiels supportés)
+$updated = $knowledge->update($newItem['id'], ['title' => 'FAQ v2']);
 
 // Supprimer
-$client->knowledge()->delete($newItem['id']);
+$knowledge->delete($newItem['id']);
 ```
 
 ## Gestion des erreurs

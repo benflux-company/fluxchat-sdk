@@ -24,7 +24,7 @@ class FluxChat
         private readonly string $apiKey,
         ?string $baseUrl = null
     ) {
-        $this->baseUrl = rtrim($baseUrl ?? 'https://api.fluxchat.io/v1', '/');
+        $this->baseUrl = rtrim($baseUrl ?? 'https://dev-api.fluxchat-corp.com/api/v2', '/');
     }
 
     // ─── Core ─────────────────────────────────────────────────────────────────
@@ -32,39 +32,53 @@ class FluxChat
     /**
      * Envoie un message à FluxChat et retourne la réponse.
      *
-     * @return array{text: string, conversation_id: ?string}
+     * @return array
      */
     public function ask(
         string $message,
         ?string $context = null,
-        ?string $conversationId = null
+        ?string $conversationId = null,
+        ?string $sessionId = null
     ): array {
         $payload = array_filter([
-            'message'         => $message,
-            'context'         => $context,
-            'conversation_id' => $conversationId,
+            'message'        => $message,
+            'context'        => $context,
+            'conversationId' => $conversationId,
+            'sessionId'      => $sessionId,
         ], fn($v) => $v !== null);
 
-        return $this->request('POST', '/ask', $payload);
+        return $this->request('POST', '/public/bot/ask', $payload);
     }
 
     /**
      * Vérifie que la clé API est valide.
      *
-     * @return array{valid: bool, plan: ?string}
+     * @return array
      */
     public function testKey(): array
     {
-        return $this->request('GET', '/test-key');
+        return $this->request('GET', '/public/bot/test');
+    }
+
+    /**
+     * Capture passivement le contenu d'une page pour la base de connaissance.
+     */
+    public function capturePage(string $url, string $title, string $content): void
+    {
+        $this->request('POST', '/public/bot/pages', [
+            'url'     => $url,
+            'title'   => $title,
+            'content' => $content,
+        ]);
     }
 
     /**
      * Retourne le client pour les opérations Knowledge Base.
      */
-    public function knowledge(): KnowledgeClient
+    public function knowledge(?string $jwtToken = null): KnowledgeClient
     {
         if ($this->knowledgeClient === null) {
-            $this->knowledgeClient = new KnowledgeClient($this);
+            $this->knowledgeClient = new KnowledgeClient($this, $jwtToken);
         }
         return $this->knowledgeClient;
     }
@@ -74,16 +88,18 @@ class FluxChat
     /**
      * @internal Utilisé par KnowledgeClient.
      */
-    public function request(string $method, string $path, array $body = []): array
+    public function request(string $method, string $path, array $body = [], array $extraHeaders = []): array
     {
         $url = $this->baseUrl . $path;
         $ch  = curl_init();
 
         $headers = [
-            'Authorization: Bearer ' . $this->apiKey,
+            'X-API-Key: ' . $this->apiKey,
             'Accept: application/json',
             'Content-Type: application/json',
         ];
+        
+        $headers = array_merge($headers, $extraHeaders);
 
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
@@ -95,6 +111,7 @@ class FluxChat
         match (strtoupper($method)) {
             'POST'   => $this->setPost($ch, $body),
             'PUT'    => $this->setPut($ch, $body),
+            'PATCH'  => $this->setPatch($ch, $body),
             'DELETE' => curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE'),
             default  => null,  // GET
         };
@@ -109,7 +126,12 @@ class FluxChat
         }
 
         if ($status < 200 || $status >= 300) {
-            throw new FluxChatApiException($status, $raw ?: '');
+            $msg = $raw;
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && isset($decoded['message'])) {
+                $msg = $decoded['message'];
+            }
+            throw new FluxChatApiException($status, $msg ?: 'Unknown API Error');
         }
 
         // DELETE 204 : pas de body
@@ -122,6 +144,10 @@ class FluxChat
             throw new FluxChatNetworkException('Failed to decode JSON response: ' . json_last_error_msg());
         }
 
+        if (is_array($decoded) && isset($decoded['success'], $decoded['data'])) {
+            return is_array($decoded['data']) ? $decoded['data'] : [];
+        }
+
         return $decoded;
     }
 
@@ -130,12 +156,18 @@ class FluxChat
     private function setPost(\CurlHandle $ch, array $body): void
     {
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        if (!empty($body)) curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
     }
 
     private function setPut(\CurlHandle $ch, array $body): void
     {
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        if (!empty($body)) curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+    }
+    
+    private function setPatch(\CurlHandle $ch, array $body): void
+    {
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PATCH');
+        if (!empty($body)) curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
     }
 }
