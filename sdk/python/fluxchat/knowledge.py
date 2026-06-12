@@ -34,33 +34,36 @@ class KnowledgeClient:
             payload["category"] = category
         if keywords is not None:
             payload["keywords"] = keywords
-        data = self._http.post("/knowledge", payload)
+        headers = self._jwt_headers()
+        data = self._http.post("/bot/knowledge", payload, extra_headers=headers)
         return KnowledgeItem.from_dict(data)
 
     def update(self, id: str, **patch: Any) -> KnowledgeItem:
         """Met à jour un élément existant avec les champs fournis."""
-        data = self._http.put(f"/knowledge/{id}", patch)
+        headers = self._jwt_headers()
+        data = self._http.patch(f"/bot/knowledge/{id}", patch, extra_headers=headers)
         return KnowledgeItem.from_dict(data)
 
     def delete(self, id: str) -> None:
         """Supprime un élément par son identifiant."""
-        self._http.delete(f"/knowledge/{id}")
+        headers = self._jwt_headers()
+        self._http.delete(f"/bot/knowledge/{id}", extra_headers=headers)
 
     def list(self) -> list[KnowledgeItem]:
         """Retourne tous les éléments (requiert un JWT token)."""
         headers = self._jwt_headers()
-        data = self._http.get("/knowledge", extra_headers=headers)
+        data = self._http.get("/bot/knowledge", extra_headers=headers)
         return [KnowledgeItem.from_dict(item) for item in data]
 
     def get(self, id: str) -> KnowledgeItem:
         """Retourne un élément par son identifiant (requiert un JWT token)."""
         headers = self._jwt_headers()
-        data = self._http.get(f"/knowledge/{id}", extra_headers=headers)
+        data = self._http.get(f"/bot/knowledge/{id}", extra_headers=headers)
         return KnowledgeItem.from_dict(data)
 
     # ── Private ───────────────────────────────────────────────────────────────
 
     def _jwt_headers(self) -> dict[str, str]:
         if self._jwt_token:
-            return {"X-JWT-Token": self._jwt_token}
+            return {"Authorization": f"Bearer {self._jwt_token}"}
         return {}

@@ -14,7 +14,7 @@ class AskResponse:
     def from_dict(cls, data: dict) -> "AskResponse":
         return cls(
             reply=data.get("text") or data.get("reply") or "",
-            conversation_id=data.get("conversation_id"),
+            conversation_id=data.get("conversationId"),
         )
 
 
@@ -27,7 +27,7 @@ class KeyInfo:
     @classmethod
     def from_dict(cls, data: dict) -> "KeyInfo":
         return cls(
-            organization_id=data.get("organization_id"),
+            organization_id=data.get("organizationId"),
             scopes=data.get("scopes", []),
         )
 

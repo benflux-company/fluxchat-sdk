@@ -15,10 +15,20 @@ def make_client(status: int, body: object) -> FluxChat:
 
     class MockTransport(httpx.BaseTransport):
         def handle_request(self, request: httpx.Request) -> httpx.Response:
+            response_body = {"success": 200 <= status < 300}
+            if 200 <= status < 300:
+                if body is not None:
+                    response_body["data"] = body
+            else:
+                if isinstance(body, dict) and "error" in body:
+                    response_body["message"] = body["error"]
+                else:
+                    response_body["message"] = "Error"
+            
             return httpx.Response(
                 status_code=status,
                 headers={"Content-Type": "application/json"},
-                content=json.dumps(body).encode(),
+                content=json.dumps(response_body).encode() if status != 204 else b"",
             )
 
     http_client = httpx.Client(transport=MockTransport())
@@ -41,13 +51,13 @@ class TestConfig:
 
 class TestAsk:
     def test_returns_ask_response(self):
-        client = make_client(200, {"text": "Bonjour !", "conversation_id": "conv-1"})
+        client = make_client(200, {"text": "Bonjour !", "conversationId": "conv-1"})
         result = client.ask("Bonjour")
         assert result.reply == "Bonjour !"
         assert result.conversation_id == "conv-1"
 
     def test_with_context_and_conversation_id(self):
-        client = make_client(200, {"text": "Réponse", "conversation_id": "conv-abc"})
+        client = make_client(200, {"text": "Réponse", "conversationId": "conv-abc"})
         result = client.ask("Question", context="support", conversation_id="conv-abc")
         assert result.conversation_id == "conv-abc"
 
@@ -63,13 +73,19 @@ class TestAsk:
             client.ask("test")
         assert exc_info.value.status_code == 500
 
+class TestCapturePage:
+    def test_capture_page(self):
+        client = make_client(204, None)
+        client.capture_page("https://test.com", "Test", "Content")
+        # Should not raise
+
 
 # ─── test_key() ──────────────────────────────────────────────────────────────
 
 class TestTestKey:
     def test_returns_key_info(self):
         client = make_client(200, {
-            "organization_id": "org-123",
+            "organizationId": "org-123",
             "scopes": ["read", "write"],
         })
         info = client.test_key()

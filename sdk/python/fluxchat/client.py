@@ -33,7 +33,7 @@ class FluxChat:
 
         self._http = HttpHelper(
             api_key=api_key,
-            base_url=base_url or "https://api.fluxchat.io/v1",
+            base_url=base_url or "https://dev-api.fluxchat-corp.com/api/v2",
             timeout=timeout,
             client=_http_client,
         )
@@ -46,6 +46,7 @@ class FluxChat:
         message: str,
         context: str | None = None,
         conversation_id: str | None = None,
+        session_id: str | None = None,
     ) -> AskResponse:
         """Envoie un message à FluxChat et retourne la réponse.
 
@@ -53,6 +54,7 @@ class FluxChat:
             message: Le message à envoyer.
             context: Contexte optionnel pour personnaliser la réponse.
             conversation_id: ID de conversation pour continuer un échange.
+            session_id: ID de session pour maintenir le contexte sans persistance.
 
         Returns:
             :class:`AskResponse` avec ``reply`` et ``conversation_id``.
@@ -62,8 +64,10 @@ class FluxChat:
             payload["context"] = context
         if conversation_id is not None:
             payload["conversation_id"] = conversation_id
+        if session_id is not None:
+            payload["sessionId"] = session_id
 
-        data = self._http.post("/ask", payload)
+        data = self._http.post("/public/bot/ask", payload)
         return AskResponse.from_dict(data)
 
     def test_key(self) -> KeyInfo:
@@ -72,5 +76,16 @@ class FluxChat:
         Returns:
             :class:`KeyInfo` avec ``organization_id`` et ``scopes``.
         """
-        data = self._http.get("/test-key")
+        data = self._http.get("/public/bot/test")
         return KeyInfo.from_dict(data)
+
+    def capture_page(self, url: str, title: str, content: str) -> None:
+        """Capture passivement le contenu d'une page pour la base de connaissance.
+
+        Args:
+            url: URL de la page capturée.
+            title: Titre de la page.
+            content: Contenu texte visible de la page (max 6000 chars).
+        """
+        payload = {"url": url, "title": title, "content": content}
+        self._http.post("/public/bot/pages", payload)

@@ -25,19 +25,32 @@ print(response.conversation_id)
 ```python
 client = FluxChat(
     api_key="sk-...",
-    base_url="https://mon-proxy.com/v1",  # optionnel
-    jwt_token="mon-jwt",                  # optionnel, pour knowledge.list/get
-    timeout=60.0,                         # timeout en secondes
+    base_url="https://mon-proxy.com/api/v2",  # optionnel
+    jwt_token="mon-jwt",                      # requis pour TOUT le CRUD knowledge
+    timeout=60.0,                             # timeout en secondes
 )
 ```
 
-## Ask avec paramètres
+## Ask avec paramètres et Session
+
+Pour garder le contexte d'une conversation entre plusieurs requêtes, utilisez `session_id` (pas stocké en base) ou `conversation_id`.
 
 ```python
 response = client.ask(
     "Quelle est votre politique de retour ?",
     context="E-commerce support",
     conversation_id="conv-abc123",
+    session_id="session-user-xyz",
+)
+```
+
+## Capturer une page passivement
+
+```python
+client.capture_page(
+    url="https://example.com/faq",
+    title="FAQ",
+    content="Contenu de la page...",
 )
 ```
 
@@ -49,7 +62,7 @@ print(f"Organisation : {info.organization_id}")
 print(f"Scopes : {info.scopes}")
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert jwt_token)
 
 ```python
 # Créer
@@ -60,16 +73,16 @@ item = client.knowledge.create(
     keywords=["retour", "remboursement"],
 )
 
-# Mettre à jour (champs partiels supportés)
+# Mettre à jour (champs partiels supportés via PATCH)
 updated = client.knowledge.update(item.id, title="FAQ v2")
 
 # Supprimer
 client.knowledge.delete(item.id)
 
-# Lister (requiert jwt_token)
+# Lister
 items = client.knowledge.list()
 
-# Récupérer par ID (requiert jwt_token)
+# Récupérer par ID
 item = client.knowledge.get("abc123")
 ```
 

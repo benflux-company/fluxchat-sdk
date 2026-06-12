@@ -15,7 +15,7 @@ class HttpHelper:
                  client: httpx.Client | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._default_headers = {
-            "Authorization": f"Bearer {api_key}",
+            "X-API-Key": api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
@@ -30,6 +30,9 @@ class HttpHelper:
 
     def put(self, path: str, body: dict | None = None) -> Any:
         return self._request("PUT", path, body=body)
+
+    def patch(self, path: str, body: dict | None = None) -> Any:
+        return self._request("PATCH", path, body=body)
 
     def delete(self, path: str) -> None:
         self._request("DELETE", path)
@@ -48,12 +51,22 @@ class HttpHelper:
             raise FluxChatNetworkError(str(exc), cause=exc) from exc
 
         if not (200 <= response.status_code < 300):
-            raise FluxChatApiError(response.status_code, response.text)
+            msg = response.text
+            try:
+                err_data = response.json()
+                if "message" in err_data:
+                    msg = err_data["message"]
+            except Exception:
+                pass
+            raise FluxChatApiError(response.status_code, msg)
 
         if not response.content or response.content == b"null":
             return None
 
         try:
-            return response.json()
+            data = response.json()
+            if isinstance(data, dict) and "data" in data and "success" in data:
+                return data["data"]
+            return data
         except Exception as exc:
             raise FluxChatNetworkError("Failed to decode JSON response", cause=exc) from exc
