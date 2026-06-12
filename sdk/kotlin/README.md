@@ -21,13 +21,24 @@ val client = FluxChatClient(apiKey = "VOTRE_API_KEY")
 
 // Envoyer un message
 val response = client.ask("Bonjour !")
-println(response.text)
+println(response.reply)
 
-// Avec contexte et conversationId
+// Avec contexte, conversationId et sessionId
 val response2 = client.ask(
     message = "Quelle est votre politique de retour ?",
     context = "E-commerce support",
-    conversationId = "conv-abc123"
+    conversationId = "conv-abc123",
+    sessionId = "session-user-xyz"
+)
+```
+
+## Capturer une page passivement
+
+```kotlin
+client.capturePage(
+    url = "https://example.com/faq",
+    title = "FAQ",
+    content = "Contenu visible de la page..."
 )
 ```
 
@@ -35,23 +46,35 @@ val response2 = client.ask(
 
 ```kotlin
 val info = client.testKey()
-println(if (info.valid) "Clé valide ✅" else "Clé invalide ❌")
+println("Organisation: ${info.organizationId}")
+println("Scopes: ${info.scopes.joinToString()}")
 ```
 
-## Knowledge Base (CRUD)
+## Knowledge Base (CRUD - requiert un JWT)
 
 ```kotlin
+// Obtenir un client Knowledge avec votre JWT
+val kb = client.knowledge(jwtToken = "eyJhbGci...")
+
 // Lister
-val items = client.getKnowledge()
+val items = kb.list()
 
 // Créer
-val newItem = client.createKnowledge(title = "FAQ", content = "Contenu...")
+val newItem = kb.create(
+    title = "FAQ",
+    content = "Contenu...",
+    category = "support",
+    keywords = listOf("retour", "remboursement")
+)
 
-// Mettre à jour
-val updated = client.updateKnowledge(id = newItem.id!!, title = "FAQ v2", content = "Nouveau contenu")
+// Mettre à jour (patch partiel)
+val updated = kb.update(
+    id = newItem.id!!,
+    title = "FAQ v2"
+)
 
 // Supprimer
-client.deleteKnowledge(id = newItem.id!!)
+kb.delete(id = newItem.id!!)
 ```
 
 ## Gestion des erreurs
