@@ -8,12 +8,124 @@ Read this entirely before writing a single line of code.
 
 ## Table of contents
 
-1. [System architecture](#1-system-architecture)
-2. [API reference — every endpoint you need](#2-api-reference)
-3. [The bot pipeline — how a question becomes an answer](#3-the-bot-pipeline)
-4. [Zero-config features — autoCapture, autoContext, platformApi](#4-zero-config-features)
-5. [Implementing a new language SDK — checklist](#5-implementing-a-new-language-sdk)
-6. [Contributing to the JS/TypeScript SDK](#6-contributing-to-the-jstypescript-sdk)
+1. [Developer sandbox](#0-developer-sandbox)
+2. [System architecture](#1-system-architecture)
+3. [API reference — every endpoint you need](#2-api-reference)
+4. [The bot pipeline — how a question becomes an answer](#3-the-bot-pipeline)
+5. [Zero-config features — autoCapture, autoContext, platformApi](#4-zero-config-features)
+6. [Implementing a new language SDK — checklist](#5-implementing-a-new-language-sdk)
+7. [Contributing to the JS/TypeScript SDK](#6-contributing-to-the-jstypescript-sdk)
+
+---
+
+## 0. Developer sandbox
+
+The sandbox is a real FluxChat organization reserved for contributors. It has an active subscription — all features unlocked. Use it to test your SDK against the live API without creating your own account.
+
+> **These credentials are public. Do not store personal data in the sandbox.**
+
+| Field | Value |
+|---|---|
+| Dashboard | https://fluxchat-corp.com |
+| Login | `heyakaf832@ocuser.com` |
+| Password | `Test1234567890@` |
+| Org ID | `ba134db3-993d-4076-8431-bb2c922d4db2` |
+| API Key | `fc_prod_f45868df738ddbec537c6c929570f1dad830fb0ca0cd5f82652e9eb7db4ede16` |
+| Base URL | `https://dev-api.fluxchat-corp.com/api/v2` |
+
+### Verifying your capture works — 5-step protocol
+
+Testing `capturePage` is not just about getting a 204 back. You need to prove the full pipeline ran end-to-end: the page arrived, the AI extracted the knowledge, and the bot uses it when answering. Run these 5 steps every time.
+
+#### Step 1 — Send a capture with a unique invented phrase
+
+Use a phrase that could not come from general AI knowledge — something fictional and specific. This eliminates false positives.
+
+```http
+POST https://dev-api.fluxchat-corp.com/api/v2/public/bot/pages
+Content-Type: application/json
+X-API-Key: fc_prod_f45868df738ddbec537c6c929570f1dad830fb0ca0cd5f82652e9eb7db4ede16
+
+{
+  "url": "https://test.example.com/about",
+  "title": "About FluxTest",
+  "content": "FluxTest is a fictional company founded in 2099 by Zara Kowalski. Our slogan is: code never lies, only humans do."
+}
+```
+
+**Expected:** `HTTP 204 No Content`
+
+204 = capture received and queued for extraction. Wait ~5 seconds — extraction runs async.
+
+#### Step 2 — Ask the bot about the unique phrase
+
+```http
+POST https://dev-api.fluxchat-corp.com/api/v2/public/bot/ask
+Content-Type: application/json
+X-API-Key: fc_prod_f45868df738ddbec537c6c929570f1dad830fb0ca0cd5f82652e9eb7db4ede16
+
+{
+  "message": "Who founded FluxTest and what is their slogan?"
+}
+```
+
+**Expected reply (proof that extraction worked):**
+```json
+{
+  "success": true,
+  "data": {
+    "reply": "FluxTest was founded in 2099 by Zara Kowalski. Their slogan is: code never lies, only humans do.",
+    "conversationId": "",
+    "confidence": 1
+  }
+}
+```
+
+If the bot answers with details from your captured page — your SDK works.
+If it says "I don't have this information", either:
+- The capture did not reach the server (check your HTTP request)
+- Extraction is still running (retry after 10 seconds)
+
+#### Step 3 — Confirm in the dashboard
+
+1. Go to https://fluxchat-corp.com and log in with the sandbox credentials above.
+2. In the sidebar, click **Bot** → **Base de connaissances**.
+3. You should see an entry titled **"About FluxTest"** with the extracted content.
+4. If the entry is NOT there after 30 seconds, the content was too short or had no extractable facts (min ~50 words recommended).
+
+#### Step 4 — Test context maintenance (sessionId)
+
+A correct SDK must pass the **same `sessionId`** on every request. Without it, the bot loses context between messages.
+
+```http
+// Message 1 — introduce a fact
+POST /public/bot/ask
+{ "message": "My name is Zara.", "sessionId": "test-session-001" }
+→ bot: "Nice to meet you, Zara!"
+
+// Message 2 — SAME sessionId — test context retention
+POST /public/bot/ask
+{ "message": "What is my name?", "sessionId": "test-session-001" }
+→ bot: "Your name is Zara."   ← PASS
+
+// Message 2 — DIFFERENT sessionId — test that context is absent
+POST /public/bot/ask
+{ "message": "What is my name?", "sessionId": "test-session-002" }
+→ bot: "I don't have your name."   ← PASS (different session = no context)
+```
+
+If the second call with the **same** `sessionId` does NOT remember "Zara": your SDK is generating a new session ID per request. Fix it by generating the sessionId once (store in memory or persistent storage) and reusing it for the entire session.
+
+#### Step 5 — Known failure modes
+
+```
+400 Bad Request   → missing required field (url, title, or content is empty)
+401 Unauthorized  → API key header missing or malformed
+403 Forbidden     → API key lacks bot:write scope (sandbox key above has all scopes)
+413               → content exceeds 6000 chars — truncate before sending
+204 but bot doesn't answer  → extraction still running — wait 10s and retry
+204 but no KB entry         → content too short or no extractable facts (min ~50 words)
+```
 
 ---
 
@@ -73,7 +185,7 @@ Read this entirely before writing a single line of code.
 | Concept | What it means |
 |---|---|
 | **Organization** | A FluxChat tenant. Each has its own API keys, KB, and DB schema. |
-| **API key** | `fc_prod_xxx` or `fc_live_xxx` — identifies the org on every public request via `X-API-Key` header. |
+| **API key** | `fc_prod_xxx` — identifies the org on every public request via `X-API-Key` header. |
 | **Knowledge base (KB)** | Articles the bot uses to answer questions. Managed by admins. |
 | **Session pages** | Pages passively captured from the host site by the SDK (`autoCapture`). Stored in `bot_session_page`. Available to the bot immediately — no admin import needed. |
 | **Context** | A string injected per-request by the SDK, treated as a **priority source of truth** above the KB. Used for page content, user info, live API data. |
@@ -150,7 +262,7 @@ Verify the API key. Returns organization info and scopes.
 {
   "success": true,
   "data": {
-    "message": "API key is valid ✓",
+    "message": "API key is valid",
     "organizationId": "uuid",
     "scopes": ["bot:write"]
   }
@@ -185,7 +297,7 @@ Crawl a URL and auto-populate the KB. Requires `bot:write` scope.
   "category": "support",
   "keywords": ["delivery", "shipping"],
   "isActive": true,
-  "createdAt": "2026-06-10T00:00:00.000Z"
+  "createdAt": "2026-06-11T00:00:00.000Z"
 }
 ```
 
@@ -207,13 +319,13 @@ Crawl a URL and auto-populate the KB. Requires `bot:write` scope.
 }
 ```
 
-`strictMode: true` forces the bot to only answer using KB + captured pages, refusing any hallucination.
+`strictMode: true` forces the bot to only answer using KB + captured pages.
 
 ---
 
 ## 3. The bot pipeline
 
-Understanding this pipeline is mandatory for building a correct SDK. Here is exactly what happens when the user sends a message:
+Understanding this pipeline is mandatory for building a correct SDK.
 
 ```
 User message arrives at POST /public/bot/ask
@@ -232,13 +344,12 @@ User message arrives at POST /public/bot/ask
 4. Build knowledge context:
    a. searchKnowledge(message)        → ILIKE search in bot_knowledge
    b. searchSessionPages(message)     → ILIKE search in bot_session_page
-   → Merge results as priority context
            │
            ▼
 5. Intent detection (BEFORE AI call):
-   → Pattern match on message to detect intents (hours, pricing, etc.)
-   → If intent matched → call the action (fetch from org's own API or DB)
-   → Action result injected as "LIVE DATA (ABSOLUTE SOURCE OF TRUTH)"
+   → Pattern match on message to detect intents
+   → If matched → call the action (fetch from org's own API or DB)
+   → Action result injected as highest-priority context
            │
            ▼
 6. Build system prompt:
@@ -247,65 +358,63 @@ User message arrives at POST /public/bot/ask
    - KB context (from step 4a)
    - Session page context (from step 4b)
    - Action data (from step 5) — highest priority
-   - Per-request context (from SDK, e.g. user info, current page)
+   - Per-request context (from SDK)
            │
            ▼
-7. AI call (Claude claude-sonnet-4-6 or configured model)
+7. FluxChat AI call
            │
            ▼
-8. Return reply + conversationId (empty string if stateless)
+8. Return { reply, conversationId }   ← conversationId is "" if stateless
 ```
 
-### Priority order for the AI (highest → lowest)
+### Context priority (highest → lowest)
 
-1. **Action data** (live DB/API result from step 5)
-2. **Per-request `context`** (injected by SDK — page content, user info, live platform data)
-3. **KB articles** (curated by admins)
-4. **Session pages** (passively captured by SDK)
-5. **AI general knowledge** (used only if nothing above is relevant, and only if not in strictMode)
+1. **Action data** — live DB/API result from intent detection
+2. **Per-request `context`** — injected by SDK per message
+3. **KB articles** — curated by admins
+4. **Session pages** — passively captured by SDK
+5. **AI general knowledge** — only when nothing above matches AND strictMode is off
 
 ---
 
 ## 4. Zero-config features
 
-These three features make the bot work on any site without manual configuration.
-
-### 4.1 `autoCapture` — passive DOM capture
+### 4.1 `autoCapture` — passive page capture
 
 **Goal:** The bot knows the entire site without any admin setup.
 
-**How it works:**
+**How it works (JS SDK):**
 
 1. On widget init, `startPassiveCapture()` intercepts SPA navigation:
-   - `history.pushState` / `history.replaceState` → capture 400ms after (waits for DOM render)
+   - `history.pushState` / `history.replaceState` → capture 400ms after render
    - `popstate` / `hashchange` → same
 
-2. On each new URL, `captureCurrentPage()`:
-   - Reads visible text from `<main>` or `<body>` (innerText, max 5000 chars)
-   - Skips if under 80 chars (navigation, loading screens)
-   - Skips if URL already captured this session (in-memory Set)
-   - POSTs to `POST /public/bot/pages`
+2. On each new URL, reads visible text from `<main>` or `<body>` (max 5000 chars), skips under 80 chars, skips already-captured URLs, POSTs to `/public/bot/pages`.
 
-3. Backend upserts into `bot_session_page(url, title, content)` per org schema.
+**Implementing `autoCapture` in mobile SDKs (Flutter/Swift/Kotlin/React Native):**
 
-4. On next `/ask`, `buildKnowledgeContext` runs `searchSessionPages(message)` — ILIKE search — and injects results as context.
+Expose a manual API and call it from screen lifecycle hooks:
 
-**Implementing `autoCapture` in other languages:**
-
-For mobile SDKs (Flutter/Swift/Kotlin), instead of DOM capture, expose an API:
+```dart
+// Flutter
+@override
+void initState() {
+  super.initState();
+  FluxChat.capturePage(
+    url: 'app://my-app/${widget.routeName}',
+    title: widget.title,
+    content: extractVisibleText(),
+  );
+}
 ```
-FluxChat.capturePage(url: string, title: string, content: string)
-```
-Call it from your screen/page lifecycle hooks. The SDK then POSTs to `/public/bot/pages`.
 
-For React Native:
 ```js
-// Call when screen focuses
+// React Native
 useEffect(() => {
   fluxchat.capturePage({
     url: `app://my-app/${route.name}`,
     title: route.params?.title ?? route.name,
-    content: extractScreenText(), // serialize your screen's visible text
+    content: extractScreenText(),
   });
 }, [route]);
 ```
@@ -314,280 +423,117 @@ useEffect(() => {
 
 **Goal:** The bot always knows what page/screen the user is on and who they are.
 
-**How it works (priority order):**
+**Priority order when building the context string:**
 
-1. `window.fluxchatContext` — set by the host app at runtime (user, org, any data)
-2. `data-fluxchat="..."` attributes on DOM elements
-3. Page title + current URL
+1. `window.fluxchatContext` (or platform equivalent) — user, org, any runtime data
+2. `data-fluxchat="..."` attributes on DOM / screen elements
+3. Screen title + current URL / route
 4. Visible text from `<main>` (first message only, max 3000 chars)
 
-The built context string is injected into every `/ask` request as the `context` field.
-
-**The `window.fluxchatContext` contract:**
-
-```js
-window.fluxchatContext = {
-  user: { name: 'Alice', email: 'alice@example.com', role: 'admin' },
-  org:  { name: 'Acme Corp', id: 'org-uuid' },
-  // any page-specific data:
-  cart: { items: 3, total: '€89.99' },
-}
-```
-
 **Rules:**
-- Set persistent data (user, org) at root layout, not per-page.
-- Always merge page-specific data; never overwrite the full object.
-- Clean up page-specific keys on page unmount.
-- DOM scraping only happens on the first message — subsequent messages use `window.fluxchatContext` only.
+- Set persistent data (user, org) at root, not per-screen.
+- Always merge page-specific data — never overwrite the full object.
+- Clean up page-specific keys on screen unmount.
 
-### 4.3 `platformApi` — live data from the host application's REST API
+### 4.3 `platformApi` — live data from host REST API
 
-**Goal:** The bot answers "what are the latest sermons?" or "show my orders" using real-time data from the platform's own API.
-
-**How it works:**
-
-1. On widget init, try to fetch OpenAPI spec from:
-   - `{baseUrl}/openapi.json`
-   - `{baseUrl}/swagger.json`
-   - `{baseUrl}/api-docs`
-   - `{baseUrl}/api-docs.json`
-
-2. For each user message, score all GET endpoints against the question:
-   - Tokenize question into keywords (>3 chars)
-   - Score each endpoint by path + summary keyword overlap
-   - Take top 2 scoring endpoints above threshold
-
-3. Call top endpoints with the user's auth token (read from localStorage):
-   - Try keys: `member_token`, `admin_token`, `token`, `auth_token`, `access_token`
-   - Pass as `Authorization: Bearer <token>`
-
-4. Format results as JSON and append to the `context` string before calling `/ask`.
-
-**Context format:**
-```
-[Platform API data — source of truth]
-GET /api/events → {"data": [...], "total": 12}
-GET /api/sermons?limit=5 → {"data": [...]}
-```
-
-This appears in the `context` field of `/ask` and is treated as the highest-priority source after action data.
+On each user message, the SDK scores GET endpoints from the host OpenAPI spec against the question, calls the top 2, and appends the results to the `context` string.
 
 ---
 
 ## 5. Implementing a new language SDK
 
+### Repository structure
+
+This repo is a monorepo. The root is the official JS/TS SDK. Each community SDK lives in `sdk/<language>/`.
+
+```
+fluxchat-sdk/               ← root = official JS/TS SDK (published to npm)
+├── src/
+├── package.json
+│
+├── sdk/                    ← community SDKs
+│   ├── python/
+│   │   ├── README.md
+│   │   ├── src/
+│   │   ├── tests/
+│   │   └── pyproject.toml
+│   ├── flutter/
+│   ├── go/
+│   ├── react-native/
+│   ├── php/
+│   ├── dotnet/
+│   ├── swift/
+│   └── kotlin/
+```
+
 ### Minimum required surface
 
 | Feature | Required | Notes |
 |---|---|---|
-| `ask(message, context?)` | Yes | POST /public/bot/ask |
+| `ask(message, context?, sessionId?)` | Yes | POST /public/bot/ask |
 | `testKey()` | Yes | GET /public/bot/test |
+| `capturePage(url, title, content)` | Yes | POST /public/bot/pages |
 | `knowledge.create/update/delete` | Yes | Needs `bot:write` scope |
 | `knowledge.list/get` | Yes | Needs JWT |
 | Typed errors | Yes | Network, API (4xx/5xx), config |
-| `capturePage(url, title, content)` | Recommended | POST /public/bot/pages |
-| Platform widget (mobile/web) | Optional | See widget section |
-
-### Repository structure
-
-```
-sdk/<language>/
-├── README.md          # install + quickstart for this language
-├── src/               # source code
-├── tests/             # test suite covering items below
-└── <package config>   # pubspec.yaml / pyproject.toml / etc.
-```
 
 ### Test coverage required
 
 - `ask` — successful response parsing
-- `ask` — stateless (no conversationId, returns empty conversationId)
+- `ask` — stateless (no conversationId, returns empty string)
 - `testKey` — parse organizationId + scopes
+- `capturePage` — 204 handling
 - `knowledge.create` — create + parse response
 - `knowledge.list` — list parsing
 - `knowledge.delete` — 204 handling
-- Network error (connection refused) → typed NetworkError
-- 401 Unauthorized → typed ApiError with status 401
-- 403 Forbidden (missing scope) → typed ApiError with status 403
-
-### Implementation guide
-
-**Python example (minimal `ask`):**
-
-```python
-import httpx
-from dataclasses import dataclass
-
-BASE_URL = "https://dev-api.fluxchat-corp.com/api/v2"
-
-@dataclass
-class AskResponse:
-    reply: str
-    conversation_id: str
-
-class FluxChat:
-    def __init__(self, api_key: str, base_url: str = BASE_URL):
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self._headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
-
-    def ask(self, message: str, *, context: str | None = None, conversation_id: str | None = None) -> AskResponse:
-        payload = {"message": message}
-        if context:
-            payload["context"] = context
-        if conversation_id:
-            payload["conversationId"] = conversation_id
-
-        with httpx.Client() as client:
-            r = client.post(f"{self.base_url}/public/bot/ask", json=payload, headers=self._headers)
-        
-        if not r.is_success:
-            raise FluxChatApiError(r.status_code, r.text)
-        
-        data = r.json()["data"]
-        return AskResponse(reply=data["reply"], conversation_id=data.get("conversationId", ""))
-
-    def capture_page(self, url: str, title: str, content: str) -> None:
-        payload = {"url": url, "title": title, "content": content[:6000]}
-        with httpx.Client() as client:
-            client.post(f"{self.base_url}/public/bot/pages", json=payload, headers=self._headers)
-```
-
-**Go example (minimal `ask`):**
-
-```go
-package fluxchat
-
-import (
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "net/http"
-)
-
-const defaultBaseURL = "https://dev-api.fluxchat-corp.com/api/v2"
-
-type Client struct {
-    apiKey  string
-    baseURL string
-    http    *http.Client
-}
-
-type AskOptions struct {
-    Message        string `json:"message"`
-    Context        string `json:"context,omitempty"`
-    ConversationID string `json:"conversationId,omitempty"`
-}
-
-type AskResponse struct {
-    Reply          string `json:"reply"`
-    ConversationID string `json:"conversationId"`
-}
-
-func New(apiKey string) *Client {
-    return &Client{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
-}
-
-func (c *Client) Ask(opts AskOptions) (*AskResponse, error) {
-    body, _ := json.Marshal(opts)
-    req, _ := http.NewRequest("POST", c.baseURL+"/public/bot/ask", bytes.NewReader(body))
-    req.Header.Set("X-API-Key", c.apiKey)
-    req.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.http.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("network error: %w", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode >= 400 {
-        return nil, fmt.Errorf("api error %d", resp.StatusCode)
-    }
-
-    var envelope struct {
-        Data AskResponse `json:"data"`
-    }
-    json.NewDecoder(resp.Body).Decode(&envelope)
-    return &envelope.Data, nil
-}
-```
-
-**Flutter/Dart example (minimal `ask`):**
-
-```dart
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-
-class FluxChat {
-  final String apiKey;
-  final String baseUrl;
-
-  FluxChat({required this.apiKey, this.baseUrl = 'https://dev-api.fluxchat-corp.com/api/v2'});
-
-  Future<Map<String, dynamic>> ask(String message, {String? context, String? conversationId}) async {
-    final body = <String, dynamic>{'message': message};
-    if (context != null) body['context'] = context;
-    if (conversationId != null) body['conversationId'] = conversationId;
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/public/bot/ask'),
-      headers: {'X-API-Key': apiKey, 'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode >= 400) {
-      throw Exception('FluxChat API error ${response.statusCode}: ${response.body}');
-    }
-
-    final data = jsonDecode(response.body)['data'];
-    return {'reply': data['reply'], 'conversationId': data['conversationId'] ?? ''};
-  }
-
-  Future<void> capturePage(String url, String title, String content) async {
-    await http.post(
-      Uri.parse('$baseUrl/public/bot/pages'),
-      headers: {'X-API-Key': apiKey, 'Content-Type': 'application/json'},
-      body: jsonEncode({'url': url, 'title': title, 'content': content.substring(0, content.length.clamp(0, 6000))}),
-    );
-  }
-}
-```
+- Network error (connection refused) → typed `NetworkError`
+- 401 Unauthorized → typed `ApiError(401)`
+- 403 Forbidden → typed `ApiError(403)`
 
 ### Response envelope
 
-Every API response follows this shape:
-
+Every API response:
 ```json
-{
-  "success": true,
-  "data": { ... },
-  "timestamp": "2026-06-10T12:00:00.000Z"
-}
+{ "success": true, "data": { ... }, "timestamp": "..." }
 ```
 
-Error responses:
-
+Error response:
 ```json
-{
-  "success": false,
-  "statusCode": 403,
-  "message": "API key missing required scope(s): bot:write",
-  "timestamp": "2026-06-10T12:00:00.000Z"
-}
+{ "success": false, "statusCode": 403, "message": "API key missing required scope(s): bot:write" }
 ```
 
 ### Error types to implement
 
-| Error class | When to throw |
+| Class | When |
 |---|---|
 | `FluxChatNetworkError` | Connection refused, timeout, DNS failure |
-| `FluxChatApiError(status, message)` | HTTP 4xx or 5xx response |
+| `FluxChatApiError(status, message)` | HTTP 4xx / 5xx |
 | `FluxChatConfigError(message)` | Missing API key, invalid baseUrl |
 
-401 = invalid/missing API key.
-403 = valid key, missing scope (e.g. `bot:write` for KB writes).
-404 = resource not found (knowledge article ID doesn't exist).
-422 = validation error (message too long, etc.).
+### Workflow
+
+```bash
+# 1. Fork on GitHub, then clone your fork
+git clone https://github.com/YOUR_USERNAME/fluxchat-sdk.git
+cd fluxchat-sdk
+
+# 2. Create your branch
+git checkout -b sdk/python
+
+# 3. Work inside sdk/python/
+#    - README.md
+#    - src/
+#    - tests/
+#    - pyproject.toml (or equivalent)
+
+# 4. Run the 5-step verification protocol (section 0 above)
+
+# 5. Push and open a PR against main
+git push origin sdk/python
+```
+
+All PRs require one review by [@benbaruka](https://github.com/benbaruka) before merge.
 
 ---
 
@@ -599,8 +545,8 @@ Error responses:
 git clone https://github.com/benflux-company/fluxchat-sdk.git
 cd fluxchat-sdk
 npm install
-npm run build      # tsup → ESM + CJS + d.ts + CLI + widget
-npm test           # vitest
+npm run build
+npm test
 npm run typecheck
 ```
 
@@ -615,9 +561,9 @@ src/
 ├── cli/
 │   └── index.ts        # CLI commands
 └── widget/
-    ├── widget.ts        # embeddable widget (DOM, SPA capture, context)
-    ├── types.ts         # WidgetOptions, WidgetInstance interfaces
-    └── styles.ts        # CSS-in-JS widget styles
+    ├── widget.ts        # embeddable widget
+    ├── types.ts         # WidgetOptions interfaces
+    └── styles.ts        # widget styles
 ```
 
 ### Branch naming
@@ -632,7 +578,7 @@ src/
 - TypeScript must compile clean (`npm run typecheck`)
 - One PR per feature or fix
 - New features need a test
-- PRs are reviewed by [@benbaruka](https://github.com/benbaruka)
+- PRs reviewed by [@benbaruka](https://github.com/benbaruka)
 
 ---
 
