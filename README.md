@@ -252,8 +252,51 @@ export default function App() {
 | `openOnLoad`     | `boolean`               | `false`                    | Open the panel automatically.                     |
 | `showBranding`   | `boolean`               | `true`                     | Show the "Powered by Benflux" footer.             |
 | `target`         | `string \| HTMLElement` | `document.body`            | Where to mount the widget.                        |
+| `autoContext`    | `boolean`               | `true`                     | Inject the current page (title, URL, DOM text, `window.fluxchatContext`) into every message. |
+| `autoCapture`    | `boolean`               | `true`                     | Passively capture every page visited and store it so the bot knows your entire site. Works on any stack — static HTML, WordPress, React/Vue SPAs. |
+| `platformApi`    | `{ baseUrl: string; authTokenKeys?: string[] }` | — | Base URL of your platform's REST API. The widget auto-discovers GET endpoints and queries relevant ones per message to enrich answers with live data. |
 
 Returns a `WidgetInstance`: `open()`, `close()`, `toggle()`, `send(message)`, `destroy()`.
+
+---
+
+## Zero-config site intelligence
+
+From v0.1.5, the widget learns your entire site automatically — no admin setup, no crawl commands, no KB imports.
+
+### autoCapture (default: true)
+
+Every page the user visits is captured and sent to FluxChat. The bot can immediately answer questions about any content on your site.
+
+```js
+// Works out of the box — nothing to configure
+FluxChatWidget.init({ apiKey: 'fc_live_xxx' });
+
+// User visits /about → captured
+// User visits /sermons → captured
+// User asks "what are the latest sermons?" → bot answers from captured content
+```
+
+Works on **static HTML, WordPress, React Router, Vue Router, Angular, Next.js** — any site, with or without an API. SPA navigation (pushState / replaceState / popstate / hashchange) is intercepted automatically.
+
+Set `autoCapture: false` only if you populate the KB yourself.
+
+### platformApi — live data from your own API
+
+The widget can query your platform's REST API in real time to answer questions that require fresh data (orders, events, sermons, products, etc.).
+
+```js
+FluxChatWidget.init({
+  apiKey: 'fc_live_xxx',
+  platformApi: { baseUrl: 'https://api.my-app.com' },
+  // Auth token is read from localStorage automatically
+  // (tries: member_token, admin_token, token, auth_token, access_token)
+});
+```
+
+The widget fetches your OpenAPI/Swagger spec on init, scores all GET endpoints against each user question, calls the top matches, and appends the results to the context before sending to FluxChat.
+
+No manual intent/action setup. No configuration. If your API has a spec, the bot uses it.
 
 ---
 

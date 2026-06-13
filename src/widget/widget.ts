@@ -29,11 +29,21 @@ const ICONS = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
 };
 
-interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target'>> {
+interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target' | 'platformApi'>> {
   avatarUrl?: string;
   logoUrl?: string;
   context?: string;
   target?: string | HTMLElement;
+  platformApi?: WidgetOptions['platformApi'];
+  autoCapture: boolean;
+}
+
+// ─── Platform API auto-enrichment types ────────────────────────────────────
+
+interface EndpointInfo {
+  path: string;
+  summary: string;
+  keywords: string;
 }
 
 function resolve(options: WidgetOptions): Resolved {
@@ -58,11 +68,13 @@ function resolve(options: WidgetOptions): Resolved {
     showBranding: options.showBranding ?? true,
     autoEnvDetect: options.autoEnvDetect ?? true,
     autoContext: options.autoContext ?? true,
+    autoCapture: options.autoCapture ?? true,
     autoCrawl: options.autoCrawl ?? false,
     avatarUrl: options.avatarUrl,
     logoUrl: options.logoUrl,
     context: options.context,
     target: options.target,
+    platformApi: options.platformApi,
   };
 }
 
@@ -74,7 +86,7 @@ function renderMarkup(text: string): string {
     .replace(/>/g, '&gt;');
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
 }
 
 export class FluxChatWidget implements WidgetInstance {
@@ -88,6 +100,7 @@ export class FluxChatWidget implements WidgetInstance {
   private busy = false;
   private conversationId = '';
   private theme: 'light' | 'dark' = 'light';
+  private platformEndpoints: EndpointInfo[] = [];
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
@@ -100,6 +113,8 @@ export class FluxChatWidget implements WidgetInstance {
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
     if (this.o.autoCrawl) this.triggerAutoCrawl();
+    if (this.o.autoCapture) this.startPassiveCapture();
+    if (this.o.platformApi?.baseUrl) void this.initPlatformApi();
   }
 
   // ── Public API ──────────────────────────────────────────
@@ -217,6 +232,151 @@ export class FluxChatWidget implements WidgetInstance {
     return this.esc((this.o.assistantName[0] ?? 'A').toUpperCase());
   }
 
+  // ── Passive page capture ────────────────────────────────
+  // Captures the rendered DOM of every page the user visits and sends it to
+  // FluxChat so the bot learns the entire site without any configuration.
+  // Works on static sites AND SPAs (intercepts pushState / replaceState).
+
+  private readonly capturedUrls = new Set<string>();
+
+  private startPassiveCapture(): void {
+    if (typeof window === 'undefined') return;
+
+    // Capture the current page on load
+    void this.captureCurrentPage();
+
+    // SPA route changes via History API
+    const origPush = history.pushState.bind(history);
+    history.pushState = (...args: Parameters<typeof history.pushState>) => {
+      origPush(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+    const origReplace = history.replaceState.bind(history);
+    history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
+      origReplace(...args);
+      setTimeout(() => void this.captureCurrentPage(), 400);
+    };
+
+    // Hash-based routing and browser back/forward
+    window.addEventListener('popstate', () => setTimeout(() => void this.captureCurrentPage(), 400));
+    window.addEventListener('hashchange', () => void this.captureCurrentPage());
+  }
+
+  private async captureCurrentPage(): Promise<void> {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+    const url = window.location.href;
+    if (this.capturedUrls.has(url)) return; // once per URL per session
+    this.capturedUrls.add(url);
+
+    const title = document.title;
+    const container = document.querySelector('main') ?? document.body;
+    const text = (container as HTMLElement).innerText
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 4000);
+
+    if (!text || text.length < 80) return; // skip empty / not-yet-rendered pages
+
+    // Capture visible links so the bot knows the direct URL of each item on this page
+    // (sermons, events, products, recipes, articles — any content type).
+    const links = Array.from(container.querySelectorAll('a[href]'))
+      .map(a => {
+        const el = a as HTMLAnchorElement;
+        const label = el.innerText?.replace(/\s+/g, ' ').trim();
+        const href = el.href;
+        return label && href && !href.startsWith('javascript') ? `[${label}](${href})` : null;
+      })
+      .filter(Boolean)
+      .slice(0, 60) // keep the first 60 links per page
+      .join('\n');
+
+    const content = links
+      ? `${text}\n\nLiens sur cette page:\n${links}`.substring(0, 6000)
+      : text;
+
+    fetch(`${this.o.baseUrl}/public/bot/pages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
+      body: JSON.stringify({ url, title, content }),
+    }).catch(() => undefined); // fire-and-forget
+  }
+
+  // ── Platform API auto-enrichment ───────────────────────
+
+  private async initPlatformApi(): Promise<void> {
+    const base = this.o.platformApi!.baseUrl.replace(/\/+$/, '');
+    const candidates = [
+      '/openapi.json', '/swagger.json', '/api-docs.json',
+      '/api/openapi.json', '/api/swagger.json', '/docs/swagger.json',
+    ];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(`${base}${path}`, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) continue;
+        const spec: unknown = await res.json();
+        this.parsePlatformSpec(spec, base);
+        if (this.platformEndpoints.length > 0) return;
+      } catch { /* try next */ }
+    }
+  }
+
+  private parsePlatformSpec(spec: unknown, base: string): void {
+    const paths = (spec as Record<string, unknown>)?.paths as Record<string, Record<string, unknown>> | undefined;
+    if (!paths) return;
+    for (const [path, methods] of Object.entries(paths)) {
+      if (path.includes('{')) continue; // skip endpoints needing a path param
+      const op = methods['get'] as Record<string, unknown> | undefined;
+      if (!op) continue;
+      const tags = Array.isArray(op['tags']) ? (op['tags'] as string[]).join(' ') : '';
+      this.platformEndpoints.push({
+        path: `${base}${path}`,
+        summary: String(op['summary'] ?? op['operationId'] ?? ''),
+        keywords: `${op['summary'] ?? ''} ${op['description'] ?? ''} ${tags}`.toLowerCase(),
+      });
+    }
+  }
+
+  private getPlatformAuthHeaders(): Record<string, string> {
+    if (typeof localStorage === 'undefined') return {};
+    const keys = this.o.platformApi?.authTokenKeys ?? [
+      'member_token', 'admin_token', 'token', 'auth_token', 'access_token',
+    ];
+    for (const key of keys) {
+      const val = localStorage.getItem(key);
+      if (val) return { Authorization: `Bearer ${val}` };
+    }
+    return {};
+  }
+
+  private async enrichWithPlatformData(question: string): Promise<string> {
+    if (!this.platformEndpoints.length) return '';
+    const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if (!words.length) return '';
+
+    const scored = this.platformEndpoints
+      .map(ep => ({ ep, score: words.filter(w => ep.keywords.includes(w)).length }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    if (!scored.length) return '';
+
+    const parts: string[] = [];
+    await Promise.allSettled(scored.map(async ({ ep }) => {
+      try {
+        const res = await fetch(ep.path, { headers: this.getPlatformAuthHeaders() });
+        if (!res.ok) return;
+        const json: unknown = await res.json();
+        const data = (json as Record<string, unknown>)?.data ?? json;
+        const str = JSON.stringify(data).substring(0, 2500);
+        parts.push(`${ep.summary || ep.path}:\n${str}`);
+      } catch { /* silent */ }
+    }));
+
+    return parts.join('\n\n');
+  }
+
   // ── Auto-crawl ──────────────────────────────────────────
   private triggerAutoCrawl(): void {
     if (typeof globalThis.window === 'undefined') return;
@@ -301,10 +461,14 @@ export class FluxChatWidget implements WidgetInstance {
     // window.fluxchatContext + DOM data is captured fresh on every send.
     // Static context (this.o.context) is appended after so auto data takes priority.
     const autoCtx = this.buildAutoContext();
-    const mergedContext = [autoCtx, this.o.context]
+    // Enrich with live platform API data when platformApi is configured
+    const platformData = this.o.platformApi?.baseUrl
+      ? await this.enrichWithPlatformData(message)
+      : '';
+    const mergedContext = [autoCtx, platformData ? `DONNÉES EN DIRECT:\n${platformData}` : '', this.o.context]
       .filter(Boolean)
       .join('\n\n')
-      .substring(0, 8000) || undefined;
+      .substring(0, 12000) || undefined;
 
     const payload = {
       message,

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2015",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["jest"],
+    "jsx": "react"
+  },
+  "include": [
+    "src/**/*",
+    "__tests__/**/*"
+  ]
+}
