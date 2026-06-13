@@ -81,6 +81,55 @@ export interface WidgetOptions {
    * Default: true. Set to false to rely solely on the static `context` option.
    */
   autoContext?: boolean;
+
+  /**
+   * Passively capture every page the user visits and send the rendered content
+   * to FluxChat so the bot can answer questions about the entire site.
+   *
+   * Works on **any** site — static HTML, WordPress, React/Vue/Angular SPAs,
+   * e-commerce stores, etc. No API, no configuration required. The widget
+   * intercepts SPA route changes (pushState / replaceState / hashchange) and
+   * captures the rendered DOM text ~300 ms after each navigation.
+   *
+   * Each unique URL is captured only once per browser session.
+   * Captured pages are immediately available to the bot as context; no admin
+   * "import" step is needed.
+   *
+   * Default: true. Set to false only if you handle KB population yourself.
+   */
+  autoCapture?: boolean;
+
+  /**
+   * Platform API integration — lets the widget automatically query the host
+   * application's own API to enrich bot answers with live data.
+   *
+   * On init, the widget fetches the platform's OpenAPI spec (tried at common
+   * paths: /openapi.json, /swagger.json, …). For each user message it scores
+   * all GET endpoints against the question text and calls the top matches,
+   * appending the JSON results to the context before sending to FluxChat.
+   *
+   * The user's auth token is read automatically from localStorage (common key
+   * names are tried unless `authTokenKeys` overrides them).
+   *
+   * This is the "zero-config live data" feature — install the SDK and the bot
+   * instantly answers questions about sermons, events, products, orders, etc.
+   * by querying your own API, no manual action/intent setup required.
+   *
+   * @example
+   * FluxChat.widget({
+   *   apiKey: 'fc_live_xxx',
+   *   platformApi: { baseUrl: 'https://api.my-app.com' },
+   * });
+   */
+  platformApi?: {
+    /** Base URL of the host platform's REST API (no trailing slash). */
+    baseUrl: string;
+    /**
+     * localStorage keys to search for a Bearer token, tried in order.
+     * Default: ['member_token', 'admin_token', 'token', 'auth_token', 'access_token']
+     */
+    authTokenKeys?: string[];
+  };
 }
 
 export interface WidgetInstance {
