@@ -5,7 +5,7 @@ import { FluxChatClient, AskOptions } from './client';
 export function useFluxChat(apiKey?: string, baseUrl?: string) {
   const context = useContext(FluxChatContext);
   const effectiveApiKey = apiKey || context.apiKey;
-  const [conversationId, setConversationId] = useState<string | undefined>(context.conversationId);
+  const [conversationId, setConversationId] = useState<string | undefined>(context.conversationId || undefined);
   const [sessionId, setSessionId] = useState<string | undefined>();
 
   // Sync context

@@ -3,7 +3,7 @@ import { useFluxChat } from '../src/useFluxChat';
 
 // Mock global fetch
 const mockFetch = jest.fn();
-global.fetch = mockFetch as any;
+globalThis.fetch = mockFetch as any;
 
 describe('useFluxChat', () => {
   beforeEach(() => {
