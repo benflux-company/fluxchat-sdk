@@ -4,8 +4,8 @@ Official Flutter & Dart SDK for [FluxChat](https://fluxchat-corp.com) — drop a
 
 Includes a **typed API client**, a **floating FAB widget**, and a **full-screen chat page**, all built on Material 3.
 
-[![pub version](https://img.shields.io/pub/v/fluxchat_sdk?color=4f46e5)](https://pub.dev/packages/fluxchat_sdk)
-[![license](https://img.shields.io/github/license/benflux-corp/fluxchat-sdk?color=4f46e5)](../../LICENSE)
+[![pub version](https://img.shields.io/badge/pub-v0.1.0-4f46e5)](https://github.com/benflux-company/fluxchat-sdk/tree/main/sdk/dart)
+[![license](https://img.shields.io/github/license/benflux-company/fluxchat-sdk?color=4f46e5)](../../LICENSE)
 [![flutter](https://img.shields.io/badge/flutter-%3E%3D3.16-4f46e5)](https://flutter.dev)
 
 [Dashboard](https://fluxchat-corp.com) · [API](https://dev-api.fluxchat-corp.com) · [Benflux](https://benflux-corp.com)
@@ -27,14 +27,27 @@ Includes a **typed API client**, a **floating FAB widget**, and a **full-screen 
 
 ## Install
 
+### From GitHub (current)
+
 ```yaml
 # pubspec.yaml
 dependencies:
-  fluxchat_sdk: ^0.1.0
+  fluxchat_sdk:
+    git:
+      url: https://github.com/benflux-company/fluxchat-sdk.git
+      path: sdk/dart
+      ref: sdk/dart/v0.1.0
 ```
 
 ```bash
 flutter pub get
+```
+
+### From pub.dev (coming soon)
+
+```yaml
+dependencies:
+  fluxchat_sdk: ^0.1.0
 ```
 
 Requires Flutter **≥ 3.16** and Dart **≥ 3.0**.
