@@ -52,6 +52,15 @@ func (e *ConfigError) Error() string {
 	return fmt.Sprintf("fluxchat: config error: %s", e.Message)
 }
 
+// ─── Auth types ───────────────────────────────────────────────────────────────
+
+// LoginResponse holds the result of a successful login.
+type LoginResponse struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresIn    string `json:"expiresIn"`
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 type apiEnvelope[T any] struct {
@@ -201,6 +210,18 @@ func (c *Client) TestKey(ctx context.Context) (*KeyInfo, error) {
 	return &result, nil
 }
 
+// Login authenticates a user and stores the JWT for Knowledge Base read operations.
+// After calling Login, knowledge list/get methods will work automatically.
+func (c *Client) Login(ctx context.Context, email, password string) (*LoginResponse, error) {
+	payload := map[string]string{"email": email, "password": password}
+	var result LoginResponse
+	if err := c.post(ctx, "/auth/login", payload, &result, false); err != nil {
+		return nil, err
+	}
+	c.jwtToken = result.AccessToken
+	return &result, nil
+}
+
 // CapturePage passively captures page content for the bot's knowledge.
 func (c *Client) CapturePage(ctx context.Context, url, title, content string) error {
 	payload := map[string]string{
@@ -222,27 +243,31 @@ func (c *Client) knowledgeBase() (string, error) {
 	return "/bot/organizations/" + c.orgID + "/knowledge", nil
 }
 
-// GetKnowledge returns all knowledge base items (requires API key with bot:read scope).
+// GetKnowledge returns all knowledge base items.
+// Requires either a JWT (via Login or WithJWT) or an API key with bot:read scope.
 func (c *Client) GetKnowledge(ctx context.Context) ([]KnowledgeItem, error) {
 	base, err := c.knowledgeBase()
 	if err != nil {
 		return nil, err
 	}
+	useJWT := c.jwtToken != ""
 	var result []KnowledgeItem
-	if err := c.get(ctx, base, &result, false); err != nil {
+	if err := c.get(ctx, base, &result, useJWT); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
 // GetKnowledgeItem returns a single knowledge base item by ID.
+// Requires either a JWT (via Login or WithJWT) or an API key with bot:read scope.
 func (c *Client) GetKnowledgeItem(ctx context.Context, id string) (*KnowledgeItem, error) {
 	base, err := c.knowledgeBase()
 	if err != nil {
 		return nil, err
 	}
+	useJWT := c.jwtToken != ""
 	var result KnowledgeItem
-	if err := c.get(ctx, base+"/"+id, &result, false); err != nil {
+	if err := c.get(ctx, base+"/"+id, &result, useJWT); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -254,8 +279,9 @@ func (c *Client) CreateKnowledge(ctx context.Context, item KnowledgeItem) (*Know
 	if err != nil {
 		return nil, err
 	}
+	useJWT := c.jwtToken != ""
 	var result KnowledgeItem
-	if err := c.post(ctx, base, item, &result, false); err != nil {
+	if err := c.post(ctx, base, item, &result, useJWT); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -267,8 +293,9 @@ func (c *Client) UpdateKnowledge(ctx context.Context, id string, patch Knowledge
 	if err != nil {
 		return nil, err
 	}
+	useJWT := c.jwtToken != ""
 	var result KnowledgeItem
-	if err := c.patch(ctx, base+"/"+id, patch, &result, false); err != nil {
+	if err := c.patch(ctx, base+"/"+id, patch, &result, useJWT); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -280,7 +307,8 @@ func (c *Client) DeleteKnowledge(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return c.delete(ctx, base+"/"+id, false)
+	useJWT := c.jwtToken != ""
+	return c.delete(ctx, base+"/"+id, useJWT)
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
