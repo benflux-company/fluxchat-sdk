@@ -36,6 +36,7 @@ interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' 
   target?: string | HTMLElement;
   platformApi?: WidgetOptions['platformApi'];
   autoCapture: boolean;
+  quickReplies: string[];
 }
 
 // ─── Platform API auto-enrichment types ────────────────────────────────────
@@ -75,6 +76,7 @@ function resolve(options: WidgetOptions): Resolved {
     context: options.context,
     target: options.target,
     platformApi: options.platformApi,
+    quickReplies: options.quickReplies ?? [],
   };
 }
 
@@ -96,6 +98,12 @@ export class FluxChatWidget implements WidgetInstance {
   private messagesEl!: HTMLDivElement;
   private input!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
+  private suggestionEl!: HTMLDivElement;
+  private suggestionChip!: HTMLButtonElement;
+  private suggestionText = '';
+  private correctDebounce: ReturnType<typeof setTimeout> | undefined;
+  private quickRepliesEl: HTMLDivElement | null = null;
+  private quickRepliesShown = false;
   private isOpen = false;
   private busy = false;
   private conversationId = '';
@@ -135,6 +143,9 @@ export class FluxChatWidget implements WidgetInstance {
     this.root.setAttribute('data-open', 'true');
     if (this.messagesEl.childElementCount === 0 && this.o.greeting) {
       this.addBubble('bot', this.o.greeting);
+      if (this.o.quickReplies.length && !this.quickRepliesShown) {
+        this.renderQuickReplies();
+      }
     }
     setTimeout(() => this.input.focus(), 200);
   }
@@ -159,6 +170,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.setTheme(this.theme === 'dark' ? 'light' : 'dark');
   }
   destroy(): void {
+    this.restoreInterceptions();
     this.root.remove();
   }
 
@@ -200,6 +212,12 @@ export class FluxChatWidget implements WidgetInstance {
           </div>
         </div>
         <div class="fcw-messages"></div>
+        <div class="fcw-suggestion" role="status" aria-live="polite">
+          <span class="fcw-suggestion-label">Suggestion :</span>
+          <button class="fcw-suggestion-chip" type="button" title="Cliquer ou Tab pour accepter"></button>
+          <button class="fcw-suggestion-send" type="button">Envoyer</button>
+          <button class="fcw-suggestion-dismiss" type="button" aria-label="Ignorer">&times;</button>
+        </div>
         <div class="fcw-composer">
           <textarea class="fcw-input" rows="1" placeholder="${this.attr(this.o.placeholder)}"></textarea>
           <button class="fcw-send" aria-label="Envoyer">${ICONS.send}</button>
@@ -213,18 +231,47 @@ export class FluxChatWidget implements WidgetInstance {
     this.messagesEl = root.querySelector('.fcw-messages')!;
     this.input = root.querySelector('.fcw-input')!;
     this.sendBtn = root.querySelector('.fcw-send')!;
+    this.suggestionEl = root.querySelector('.fcw-suggestion')!;
+    this.suggestionChip = root.querySelector('.fcw-suggestion-chip')!;
 
     root.querySelector('.fcw-launcher')?.addEventListener('click', () => this.toggle());
     root.querySelector('.fcw-close')?.addEventListener('click', () => this.close());
     root.querySelector('.fcw-theme')?.addEventListener('click', () => this.toggleTheme());
     this.sendBtn.addEventListener('click', () => this.handleSend(this.input.value));
+
+    // Suggestion chip: click → accept into input
+    this.suggestionChip.addEventListener('click', () => {
+      this.input.value = this.suggestionText;
+      this.hideSuggestion();
+      this.autosize();
+      this.input.focus();
+    });
+    // "Envoyer" button on chip → send corrected directly
+    root.querySelector('.fcw-suggestion-send')!.addEventListener('click', () => {
+      void this.handleSend(this.suggestionText);
+      this.hideSuggestion();
+    });
+    // Dismiss
+    root.querySelector('.fcw-suggestion-dismiss')!.addEventListener('click', () => this.hideSuggestion());
+
     this.input.addEventListener('keydown', (e) => {
+      // Tab or → at end of input → accept suggestion
+      if (this.suggestionText && (e.key === 'Tab' || (e.key === 'ArrowRight' && this.input.selectionStart === this.input.value.length))) {
+        e.preventDefault();
+        this.input.value = this.suggestionText;
+        this.hideSuggestion();
+        this.autosize();
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         void this.handleSend(this.input.value);
       }
     });
-    this.input.addEventListener('input', () => this.autosize());
+    this.input.addEventListener('input', () => {
+      this.autosize();
+      this.scheduleCorrection();
+    });
 
     const target = this.resolveTarget();
     target.appendChild(root);
@@ -260,21 +307,25 @@ export class FluxChatWidget implements WidgetInstance {
     // Capture the current page on load
     void this.captureCurrentPage();
 
-    // SPA route changes via History API
-    const origPush = history.pushState.bind(history);
+    // SPA route changes via History API — save originals for destroy()
+    this._origHistoryPush = history.pushState.bind(history);
+    const origPush = this._origHistoryPush;
     history.pushState = (...args: Parameters<typeof history.pushState>) => {
       origPush(...args);
       setTimeout(() => void this.captureCurrentPage(), 400);
     };
-    const origReplace = history.replaceState.bind(history);
+    this._origHistoryReplace = history.replaceState.bind(history);
+    const origReplace = this._origHistoryReplace;
     history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
       origReplace(...args);
       setTimeout(() => void this.captureCurrentPage(), 400);
     };
 
-    // Hash-based routing and browser back/forward
-    window.addEventListener('popstate', () => setTimeout(() => void this.captureCurrentPage(), 400));
-    window.addEventListener('hashchange', () => void this.captureCurrentPage());
+    // Hash-based routing and browser back/forward — save for destroy()
+    this._popstateHandler = () => setTimeout(() => void this.captureCurrentPage(), 400);
+    this._hashchangeHandler = () => void this.captureCurrentPage();
+    window.addEventListener('popstate', this._popstateHandler);
+    window.addEventListener('hashchange', this._hashchangeHandler);
   }
 
   private async captureCurrentPage(): Promise<void> {
@@ -319,9 +370,19 @@ export class FluxChatWidget implements WidgetInstance {
   // (axios, React Query, SWR, tRPC, GraphQL, etc.).
 
   private readonly capturedApiHashes = new Set<string>();
+  private static readonly HASH_CAP = 500;
   // URLs to never capture: auth, uploads, binaries, streaming, internal
   private readonly SKIP_URL_RE = /\/(login|logout|auth|token|refresh|signup|register|upload|avatar|thumbnail|image|blob|socket\.io|ws|sse|metrics|health|ping|favicon)/i;
   private readonly SKIP_EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|pdf|zip|mp4|mp3|csv)(\?|$)/i;
+
+  // Store originals so destroy() can fully restore them
+  private _origFetch: typeof globalThis.fetch | undefined;
+  private _origXhrOpen: typeof XMLHttpRequest.prototype.open | undefined;
+  private _origXhrSend: typeof XMLHttpRequest.prototype.send | undefined;
+  private _origHistoryPush: typeof history.pushState | undefined;
+  private _origHistoryReplace: typeof history.replaceState | undefined;
+  private _popstateHandler: (() => void) | undefined;
+  private _hashchangeHandler: (() => void) | undefined;
 
   private startApiInterception(): void {
     this.interceptFetch();
@@ -332,6 +393,7 @@ export class FluxChatWidget implements WidgetInstance {
   private interceptFetch(): void {
     const origFetch = globalThis.fetch?.bind(globalThis);
     if (!origFetch) return;
+    this._origFetch = origFetch;
     const self = this;
     globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
       const res = await origFetch(input, init);
@@ -355,6 +417,8 @@ export class FluxChatWidget implements WidgetInstance {
     if (typeof XMLHttpRequest === 'undefined') return;
     const origOpen = XMLHttpRequest.prototype.open;
     const origSend = XMLHttpRequest.prototype.send;
+    this._origXhrOpen = origOpen;
+    this._origXhrSend = origSend;
     const self = this;
 
     XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: [boolean?, string?, string?]) {
@@ -380,6 +444,39 @@ export class FluxChatWidget implements WidgetInstance {
     };
   }
 
+  private restoreInterceptions(): void {
+    if (this._origFetch) {
+      globalThis.fetch = this._origFetch;
+      this._origFetch = undefined;
+    }
+    if (this._origXhrOpen) {
+      XMLHttpRequest.prototype.open = this._origXhrOpen;
+      this._origXhrOpen = undefined;
+    }
+    if (this._origXhrSend) {
+      XMLHttpRequest.prototype.send = this._origXhrSend;
+      this._origXhrSend = undefined;
+    }
+    if (this._origHistoryPush) {
+      history.pushState = this._origHistoryPush;
+      this._origHistoryPush = undefined;
+    }
+    if (this._origHistoryReplace) {
+      history.replaceState = this._origHistoryReplace;
+      this._origHistoryReplace = undefined;
+    }
+    if (this._popstateHandler) {
+      window.removeEventListener('popstate', this._popstateHandler);
+      this._popstateHandler = undefined;
+    }
+    if (this._hashchangeHandler) {
+      window.removeEventListener('hashchange', this._hashchangeHandler);
+      this._hashchangeHandler = undefined;
+    }
+    this.capturedApiHashes.clear();
+    this.capturedUrls.clear();
+  }
+
   private captureApiData(apiUrl: string, data: unknown): void {
     if (!data || typeof data !== 'object') return;
     const str = JSON.stringify(data);
@@ -388,6 +485,10 @@ export class FluxChatWidget implements WidgetInstance {
 
     const hash = this.captureHash(str);
     if (this.capturedApiHashes.has(hash)) return;
+    // Cap the dedup set to avoid unbounded memory growth on long sessions
+    if (this.capturedApiHashes.size >= FluxChatWidget.HASH_CAP) {
+      this.capturedApiHashes.clear();
+    }
     this.capturedApiHashes.add(hash);
 
     let absUrl = apiUrl;
@@ -613,6 +714,7 @@ export class FluxChatWidget implements WidgetInstance {
     if (!text || this.busy) return;
     if (!this.isOpen) this.open();
 
+    this.removeQuickReplies();
     this.input.value = '';
     this.autosize();
     this.addBubble('user', text);
@@ -625,7 +727,7 @@ export class FluxChatWidget implements WidgetInstance {
       this.addBubble('bot', reply);
     } catch (err) {
       typing.remove();
-      this.addBubble('bot', "⚠️ Désolé, une erreur est survenue. Réessayez dans un instant.");
+      this.addBubble('bot', "Désolé, une erreur est survenue. Réessayez dans un instant.");
       // eslint-disable-next-line no-console
       console.error('[FluxChatWidget]', err);
     } finally {
@@ -684,6 +786,77 @@ export class FluxChatWidget implements WidgetInstance {
     const data = json?.data ?? json;
     if (data?.conversationId) this.conversationId = data.conversationId;
     return data?.reply ?? '…';
+  }
+
+  // ── Autocorrect ─────────────────────────────────────────
+  private scheduleCorrection(): void {
+    if (this.correctDebounce !== undefined) clearTimeout(this.correctDebounce);
+    this.hideSuggestion();
+    const text = this.input.value;
+    if (text.trim().length < 7) return;
+    this.correctDebounce = setTimeout(() => void this.runCorrection(text), 900);
+  }
+
+  private async runCorrection(original: string): Promise<void> {
+    try {
+      const res = await fetch(`${this.o.baseUrl}/public/bot/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': this.o.apiKey },
+        // No sessionId — correction calls must NOT pollute the conversation history
+        body: JSON.stringify({
+          message: `Corrige les fautes d'orthographe et de grammaire dans ce texte, retourne UNIQUEMENT le texte corrigé sans explication : "${original}"`,
+        }),
+      });
+      const json = await res.json().catch(() => undefined);
+      const raw: string = json?.data?.reply ?? json?.reply ?? '';
+      const corrected = raw.replace(/^["«»]+|["«»]+$/g, '').trim();
+      if (!corrected) return;
+      const normalize = (s: string) => s.trim().toLowerCase().replace(/[.,!?;:]+$/, '');
+      if (normalize(corrected) === normalize(original)) return;
+      // Only show if user hasn't changed the input since we sent the request
+      if (this.input.value.trim() !== original.trim()) return;
+      this.showSuggestion(corrected);
+    } catch { /* silent */ }
+  }
+
+  private showSuggestion(text: string): void {
+    this.suggestionText = text;
+    this.suggestionChip.textContent = text;
+    this.suggestionChip.title = text;
+    this.suggestionEl.classList.add('visible');
+  }
+
+  private hideSuggestion(): void {
+    this.suggestionText = '';
+    this.suggestionEl.classList.remove('visible');
+  }
+
+  // ── Quick replies ────────────────────────────────────────
+  private renderQuickReplies(): void {
+    this.quickRepliesShown = true;
+    const el = document.createElement('div');
+    el.className = 'fcw-quick-replies';
+    for (const label of this.o.quickReplies) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fcw-qr-chip';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        this.removeQuickReplies();
+        void this.handleSend(label);
+      });
+      el.appendChild(btn);
+    }
+    this.quickRepliesEl = el;
+    this.messagesEl.appendChild(el);
+    this.scrollToBottom();
+  }
+
+  private removeQuickReplies(): void {
+    if (this.quickRepliesEl) {
+      this.quickRepliesEl.remove();
+      this.quickRepliesEl = null;
+    }
   }
 
   // ── DOM helpers ─────────────────────────────────────────

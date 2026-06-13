@@ -41,6 +41,12 @@ export interface WidgetOptions {
   placeholder?: string;
   /** Tooltip/label on the launcher button. */
   launcherLabel?: string;
+  /**
+   * Quick reply suggestions shown below the greeting when the panel first opens.
+   * Each item is a short label the user can tap to send that message instantly.
+   * @example ['Quels sont vos horaires ?', 'Comment vous contacter ?']
+   */
+  quickReplies?: string[];
 
   /**
    * Static real-time context sent with every message (priority over the KB).
