@@ -1,53 +1,174 @@
 # FluxChat SDK — Go
 
-> Community SDK — tracked in [issue #4](https://github.com/benflux-company/fluxchat-sdk/issues/4)
+> **Author:** [@benjaminmugangu](https://github.com/benjaminmugangu) · v1.0.4 · [MIT License](../../LICENSE)
 
-## Status
+Official Go SDK for [FluxChat](https://fluxchat-corp.com). Zero external dependencies — stdlib only.
 
-**Open for contribution.** This directory is a placeholder. See [CONTRIBUTING.md](../../CONTRIBUTING.md) and the [full guide](https://docs.fluxchat-corp.com/docs#for-devs) before starting.
+---
 
-## Sandbox — test credentials
+## Install
 
-| Field | Value |
-|---|---|
-| Base URL | `https://dev-api.fluxchat-corp.com/api/v2` |
-| API Key | `fc_prod_f45868df738ddbec537c6c929570f1dad830fb0ca0cd5f82652e9eb7db4ede16` |
-| Org ID | `ba134db3-993d-4076-8431-bb2c922d4db2` |
-| Dashboard | https://fluxchat-corp.com (login: heyakaf832@ocuser.com / Test1234567890@) |
+```bash
+go get github.com/benflux-company/fluxchat-sdk/sdk/go@v1.0.4
+```
 
-## Quickstart (target API)
+**go.mod**
+```
+require github.com/benflux-company/fluxchat-sdk/sdk/go v1.0.4
+```
+
+Requires Go 1.21+.
+
+---
+
+## Quickstart
 
 ```go
-client := fluxchat.New("fc_prod_...")
+package main
 
-resp, err := client.Ask(ctx, fluxchat.AskOptions{
-    Message: "What are your opening hours?",
-})
-fmt.Println(resp.Reply)
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
 
-// Capture a page
-err = client.CapturePage(ctx, fluxchat.PageOptions{
-    URL:     "https://myapp.com/about",
-    Title:   "About",
-    Content: "We are open Mon–Fri 9am–6pm.",
+    fluxchat "github.com/benflux-company/fluxchat-sdk/sdk/go"
+)
+
+func main() {
+    client, err := fluxchat.NewClient(os.Getenv("FLUXCHAT_API_KEY"))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    resp, err := client.Ask(context.Background(), "What are your opening hours?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Reply)
+}
+```
+
+---
+
+## Authentication
+
+```go
+// Validate key + cache OrganizationID (required for KB operations)
+info, err := client.TestKey(ctx)
+
+// Obtain admin JWT for Knowledge list/get
+loginResp, err := client.Login(ctx, "admin@example.com", "password")
+```
+
+---
+
+## Ask
+
+```go
+// Stateless
+resp, err := client.Ask(ctx, "Hello!")
+
+// Continue a conversation
+resp2, err := client.Ask(ctx, "Follow-up?",
+    fluxchat.WithConversationID(resp.ConversationID),
+)
+
+// With session and context
+resp3, err := client.Ask(ctx, "My balance?",
+    fluxchat.WithSessionID("user-42"),
+    fluxchat.WithContext("User: Alice, Plan: Pro"),
+)
+```
+
+---
+
+## CapturePage
+
+```go
+err := client.CapturePage(ctx,
+    "https://yoursite.com/pricing",
+    "Pricing",
+    "Starter: $0/mo · Pro: $29/mo",
+)
+```
+
+---
+
+## IndexRoutes
+
+Register your API surface as Knowledge Base articles at startup — the bot knows your endpoints before any request arrives.
+
+```go
+err := client.IndexRoutes(ctx, []fluxchat.RouteInfo{
+    {Method: "GET",  Path: "/api/products", Title: "List products",  Description: "Returns all active products."},
+    {Method: "POST", Path: "/api/orders",   Title: "Create order",   Description: "Body: {productId, quantity}."},
 })
 ```
 
-## What to implement
+---
 
-| Method | Endpoint | Required |
-|---|---|---|
-| `Ask(ctx, AskOptions)` | `POST /public/bot/ask` | Yes |
-| `TestKey(ctx)` | `GET /public/bot/test` | Yes |
-| `CapturePage(ctx, PageOptions)` | `POST /public/bot/pages` | Yes |
-| `Knowledge.Create(ctx, ...)` | `POST /bot/knowledge` | Yes |
-| `Knowledge.List(ctx)` | `GET /bot/knowledge` | Yes |
-| `Knowledge.Delete(ctx, id)` | `DELETE /bot/knowledge/:id` | Yes |
+## Knowledge Base
 
-## Package config
+```go
+// List (requires JWT — call Login first)
+items, err := client.GetKnowledge(ctx)
 
-Use `go.mod` with no external dependencies (stdlib `net/http` only). Target Go 1.21+.
+// Create
+created, err := client.CreateKnowledge(ctx, fluxchat.KnowledgeItem{
+    Title:   "Opening hours",
+    Content: "Mon–Fri 9am–6pm",
+})
 
-## Testing
+// Update
+updated, err := client.UpdateKnowledge(ctx, "article-id", fluxchat.KnowledgeItem{
+    Content: "Mon–Fri 9am–7pm",
+})
 
-After implementing `CapturePage`, follow the [5-step verification protocol](https://docs.fluxchat-corp.com/docs#sandbox-verify) using the sandbox above.
+// Delete
+err := client.DeleteKnowledge(ctx, "article-id")
+```
+
+---
+
+## Error handling
+
+```go
+import "errors"
+
+_, err := client.Ask(ctx, "Hello")
+if err != nil {
+    var apiErr *fluxchat.APIError
+    var netErr *fluxchat.NetworkError
+    var cfgErr *fluxchat.ConfigError
+
+    switch {
+    case errors.As(err, &apiErr):
+        fmt.Printf("API %d: %s\n", apiErr.StatusCode, apiErr.Message)
+    case errors.As(err, &netErr):
+        fmt.Printf("Network: %v\n", netErr.Cause)
+    case errors.As(err, &cfgErr):
+        fmt.Printf("Config: %s\n", cfgErr.Message)
+    }
+}
+```
+
+---
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `WithBaseURL(url)` | Override API base URL |
+| `WithHTTPClient(hc)` | Inject custom HTTP client |
+| `WithJWT(token)` | Pre-load a JWT |
+| `WithOrgID(id)` | Pre-set organization ID |
+| `WithConversationID(id)` | Continue a conversation thread |
+| `WithSessionID(id)` | Tie calls to one session |
+| `WithContext(text)` | Priority context injected into the bot |
+
+---
+
+## Author
+
+This SDK was written by [@benjaminmugangu](https://github.com/benjaminmugangu) and contributed to the [FluxChat open-source ecosystem](https://github.com/benflux-company/fluxchat-sdk).
