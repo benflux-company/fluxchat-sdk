@@ -2,7 +2,10 @@
 //
 // Basic usage:
 //
-//	client := fluxchat.NewClient("your-api-key")
+//	client, err := fluxchat.NewClient("your-api-key")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //	resp, err := client.Ask(ctx, "Hello!", fluxchat.WithSessionID("user-123"))
 package fluxchat
 
@@ -39,6 +42,15 @@ func (e *NetworkError) Error() string {
 }
 
 func (e *NetworkError) Unwrap() error { return e.Cause }
+
+// ConfigError is returned when the client is misconfigured (e.g. empty API key).
+type ConfigError struct {
+	Message string
+}
+
+func (e *ConfigError) Error() string {
+	return fmt.Sprintf("fluxchat: config error: %s", e.Message)
+}
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
@@ -133,7 +145,11 @@ type Client struct {
 }
 
 // NewClient creates a new FluxChat client.
-func NewClient(apiKey string, opts ...Option) *Client {
+// Returns a ConfigError if apiKey is empty.
+func NewClient(apiKey string, opts ...Option) (*Client, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, &ConfigError{Message: "apiKey must not be empty"}
+	}
 	c := &Client{
 		apiKey:  apiKey,
 		baseURL: "https://dev-api.fluxchat-corp.com/api/v2",
@@ -144,7 +160,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
-	return c
+	return c, nil
 }
 
 // ─── Core methods ─────────────────────────────────────────────────────────────
@@ -236,10 +252,6 @@ func (c *Client) get(ctx context.Context, path string, out any, useJWT bool) err
 
 func (c *Client) post(ctx context.Context, path string, body, out any, useJWT bool) error {
 	return c.doWithBody(ctx, http.MethodPost, path, body, out, useJWT)
-}
-
-func (c *Client) put(ctx context.Context, path string, body, out any, useJWT bool) error {
-	return c.doWithBody(ctx, http.MethodPut, path, body, out, useJWT)
 }
 
 func (c *Client) patch(ctx context.Context, path string, body, out any, useJWT bool) error {
