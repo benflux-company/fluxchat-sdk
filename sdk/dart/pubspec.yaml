@@ -1,0 +1,25 @@
+name: fluxchat_sdk
+description: >-
+  Official Flutter/Dart SDK for FluxChat — drop an AI assistant into any
+  mobile or web app in minutes. Includes a typed API client, a floating FAB
+  widget, and a full-screen chat page, both built on Material 3.
+version: 0.1.0
+homepage: https://fluxchat-corp.com
+repository: https://github.com/benflux-corp/fluxchat-sdk
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Feature-rich HTTP client: interceptors, timeouts, adapters for testing
+  dio: ^5.7.0
+  # Markdown rendering for bot replies
+  flutter_markdown: ^0.7.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
