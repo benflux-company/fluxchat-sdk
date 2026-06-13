@@ -25,6 +25,7 @@ func newTestServer(statusCode int, body any) (*httptest.Server, *fluxchat.Client
 		"test-api-key",
 		fluxchat.WithBaseURL(srv.URL),
 		fluxchat.WithHTTPClient(srv.Client()),
+		fluxchat.WithOrgID("test-org-id"),
 	)
 	if err != nil {
 		panic(err)
@@ -283,5 +284,20 @@ func TestNewClient_WhitespaceKey(t *testing.T) {
 	_, err := fluxchat.NewClient("   ")
 	if err == nil {
 		t.Fatal("expected ConfigError for whitespace apiKey, got nil")
+	}
+}
+
+func TestGetKnowledge_NoOrgID(t *testing.T) {
+	client, err := fluxchat.NewClient("test-key")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_, err = client.GetKnowledge(context.Background())
+	if err == nil {
+		t.Fatal("expected ConfigError when orgID not set, got nil")
+	}
+	var cfgErr *fluxchat.ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("expected *fluxchat.ConfigError, got %T", err)
 	}
 }

@@ -109,6 +109,14 @@ func WithJWT(token string) Option {
 	}
 }
 
+// WithOrgID sets the organization ID required for Knowledge Base operations.
+// You can obtain it from the OrganizationID field returned by TestKey.
+func WithOrgID(orgID string) Option {
+	return func(c *Client) {
+		c.orgID = orgID
+	}
+}
+
 // AskOption configures a single Ask call.
 type AskOption func(*askPayload)
 
@@ -140,6 +148,7 @@ func WithSessionID(id string) AskOption {
 type Client struct {
 	apiKey     string
 	jwtToken   string
+	orgID      string
 	baseURL    string
 	httpClient *http.Client
 }
@@ -179,10 +188,15 @@ func (c *Client) Ask(ctx context.Context, msg string, opts ...AskOption) (*AskRe
 }
 
 // TestKey verifies the API key and returns associated info.
+// As a side effect, it caches the OrganizationID on the client so that
+// Knowledge Base methods work without explicitly calling WithOrgID.
 func (c *Client) TestKey(ctx context.Context) (*KeyInfo, error) {
 	var result KeyInfo
 	if err := c.get(ctx, "/public/bot/test", &result, false); err != nil {
 		return nil, err
+	}
+	if c.orgID == "" && result.OrganizationID != "" {
+		c.orgID = result.OrganizationID
 	}
 	return &result, nil
 }
@@ -199,45 +213,74 @@ func (c *Client) CapturePage(ctx context.Context, url, title, content string) er
 
 // ─── Knowledge CRUD ───────────────────────────────────────────────────────────
 
-// GetKnowledge returns all knowledge base items (requires JWT).
+// knowledgeBase returns the base path for knowledge operations.
+// Returns a ConfigError if orgID has not been set (via WithOrgID or TestKey).
+func (c *Client) knowledgeBase() (string, error) {
+	if c.orgID == "" {
+		return "", &ConfigError{Message: "orgID is required for Knowledge operations — call TestKey() first or use WithOrgID()"}
+	}
+	return "/bot/organizations/" + c.orgID + "/knowledge", nil
+}
+
+// GetKnowledge returns all knowledge base items (requires API key with bot:read scope).
 func (c *Client) GetKnowledge(ctx context.Context) ([]KnowledgeItem, error) {
+	base, err := c.knowledgeBase()
+	if err != nil {
+		return nil, err
+	}
 	var result []KnowledgeItem
-	if err := c.get(ctx, "/bot/knowledge", &result, true); err != nil {
+	if err := c.get(ctx, base, &result, false); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-// GetKnowledgeItem returns a single knowledge base item by ID (requires JWT).
+// GetKnowledgeItem returns a single knowledge base item by ID.
 func (c *Client) GetKnowledgeItem(ctx context.Context, id string) (*KnowledgeItem, error) {
+	base, err := c.knowledgeBase()
+	if err != nil {
+		return nil, err
+	}
 	var result KnowledgeItem
-	if err := c.get(ctx, "/bot/knowledge/"+id, &result, true); err != nil {
+	if err := c.get(ctx, base+"/"+id, &result, false); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// CreateKnowledge creates a new knowledge base item (requires JWT).
+// CreateKnowledge creates a new knowledge base item (requires bot:write scope).
 func (c *Client) CreateKnowledge(ctx context.Context, item KnowledgeItem) (*KnowledgeItem, error) {
+	base, err := c.knowledgeBase()
+	if err != nil {
+		return nil, err
+	}
 	var result KnowledgeItem
-	if err := c.post(ctx, "/bot/knowledge", item, &result, true); err != nil {
+	if err := c.post(ctx, base, item, &result, false); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// UpdateKnowledge updates an existing knowledge base item (requires JWT).
+// UpdateKnowledge updates an existing knowledge base item (requires bot:write scope).
 func (c *Client) UpdateKnowledge(ctx context.Context, id string, patch KnowledgeItem) (*KnowledgeItem, error) {
+	base, err := c.knowledgeBase()
+	if err != nil {
+		return nil, err
+	}
 	var result KnowledgeItem
-	if err := c.patch(ctx, "/bot/knowledge/"+id, patch, &result, true); err != nil {
+	if err := c.patch(ctx, base+"/"+id, patch, &result, false); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// DeleteKnowledge deletes a knowledge base item by ID (requires JWT).
+// DeleteKnowledge deletes a knowledge base item by ID (requires bot:write scope).
 func (c *Client) DeleteKnowledge(ctx context.Context, id string) error {
-	return c.delete(ctx, "/bot/knowledge/"+id, true)
+	base, err := c.knowledgeBase()
+	if err != nil {
+		return err
+	}
+	return c.delete(ctx, base+"/"+id, false)
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
