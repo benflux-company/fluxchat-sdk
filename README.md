@@ -11,7 +11,7 @@ Drop a beautiful AI assistant into any product in minutes — with per-request c
 [![types](https://img.shields.io/npm/types/@fluxchat_sdk/sdk?color=4f46e5)](./dist/index.d.ts)
 [![node](https://img.shields.io/node/v/@fluxchat_sdk/sdk?color=4f46e5)](https://nodejs.org)
 
-[Dashboard](https://fluxchat-corp.com) &nbsp;·&nbsp; [API](https://dev-api.fluxchat-corp.com) &nbsp;·&nbsp; [Benflux](https://benflux-corp.com)
+[Dashboard](https://fluxchat-corp.com) &nbsp;·&nbsp; [API](https://api.fluxchat-corp.com) &nbsp;·&nbsp; [Benflux](https://benflux-corp.com)
 
 </div>
 
@@ -153,7 +153,7 @@ import remarkGfm from 'remark-gfm'
 // Adapt the env variable name to your framework (see table above)
 const API_URL = process.env.NEXT_PUBLIC_FLUXCHAT_API_URL   // Next.js
             ?? import.meta.env?.VITE_FLUXCHAT_API_URL       // Vite
-            ?? 'https://dev-api.fluxchat-corp.com/api/v2'
+            ?? 'https://api.fluxchat-corp.com/api/v2'
 
 const API_KEY = process.env.NEXT_PUBLIC_FLUXCHAT_API_KEY
             ?? import.meta.env?.VITE_FLUXCHAT_API_KEY
@@ -310,7 +310,7 @@ import { FluxChat } from '@fluxchat_sdk/sdk';
 const fluxchat = new FluxChat({
   apiKey: 'fc_prod_your_key',            // X-API-Key auth (public bot + bot:write KB)
   // token: 'eyJ...',           // OR a JWT for admin operations
-  // baseUrl: 'https://dev-api.fluxchat-corp.com/api/v2',
+  // baseUrl: 'https://dev-api.fluxchat-corp.com/api/v2', // override for local/dev testing — defaults to production
   organizationId: 'org-uuid',   // default org for knowledge/config helpers
 });
 ```
@@ -580,11 +580,14 @@ The FluxChat API is versioned. This SDK and the widget target **v2** by default.
 
 | Version | Base URL | Notes |
 | ------- | ------------------------------------------ | ----------------------------------------------- |
-| **v2** *(default)* | `https://dev-api.fluxchat-corp.com/api/v2` | Per-request `context`, stateless public asks. |
-| **v1** *(legacy)*  | `https://dev-api.fluxchat-corp.com/api/v1` | Stable, backward-compatible. **Does not accept `context`.** |
+| **v2** *(default)* | `https://api.fluxchat-corp.com/api/v2` | Per-request `context`, stateless public asks. |
+| **v1** *(legacy)*  | `https://api.fluxchat-corp.com/api/v1` | Stable, backward-compatible. **Does not accept `context`.** |
 
 Pin a version explicitly via `baseUrl` (SDK) or the `baseUrl` widget option. Passing
 `context` against **v1** returns `400` — use v2 for context-aware answers.
+
+For local/dev testing, point `baseUrl` at `https://dev-api.fluxchat-corp.com/api/v{1,2}`
+instead — the dev cluster, not production.
 
 ---
 

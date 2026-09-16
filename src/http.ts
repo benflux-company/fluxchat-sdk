@@ -6,7 +6,12 @@ import {
 import type { FluxChatClientOptions } from './types.js';
 
 // Targets API v2 by default — that's where per-request `context` lives.
-const DEFAULT_BASE_URL = 'https://dev-api.fluxchat-corp.com/api/v2';
+// Defaults to production: this client has no browser/hostname to inspect
+// (unlike the widget's detectEnv()), so silently falling back to the dev
+// cluster here would mean every server/CLI integration that forgets to
+// pass `baseUrl` talks to dev-api instead of prod. Override via
+// `baseUrl` or `FLUXCHAT_BASE_URL` for local/dev testing.
+const DEFAULT_BASE_URL = 'https://api.fluxchat-corp.com/api/v2';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 interface RequestOptions {

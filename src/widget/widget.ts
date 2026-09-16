@@ -6,6 +6,8 @@ const BENFLUX_URL = 'https://benflux-corp.com';
 
 const DEV_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
 const DEV_SUFFIXES  = ['.local', '.dev', '.test', '.localhost', '.internal'];
+const DEV_BASE_URL = 'https://dev-api.fluxchat-corp.com/api/v2';
+const PROD_BASE_URL = 'https://api.fluxchat-corp.com/api/v2';
 
 function detectEnv(apiKey: string, autoDetect: boolean): 'dev' | 'prod' {
   if (!autoDetect) return 'prod';
@@ -48,9 +50,16 @@ interface EndpointInfo {
 
 function resolve(options: WidgetOptions): Resolved {
   if (!options.apiKey) throw new Error('[FluxChatWidget] `apiKey` is required.');
+  // baseUrl was previously hardcoded to the dev cluster regardless of
+  // environment — every integrator who didn't pass `baseUrl` explicitly,
+  // including real prod deployments with an `fc_prod_...` key, silently
+  // talked to dev-api. detectEnv() already exists and correctly tells dev
+  // from prod (key prefix, then hostname); wire the default host to it
+  // instead of a fixed dev value.
+  const env = detectEnv(options.apiKey, options.autoEnvDetect ?? true);
   return {
     apiKey: options.apiKey,
-    baseUrl: (options.baseUrl ?? 'https://dev-api.fluxchat-corp.com/api/v2').replace(/\/+$/, ''),
+    baseUrl: (options.baseUrl ?? (env === 'dev' ? DEV_BASE_URL : PROD_BASE_URL)).replace(/\/+$/, ''),
     clientName: options.clientName ?? '',
     assistantName: options.assistantName ?? 'Assistant',
     headerSubtitle: options.headerSubtitle ?? 'En ligne',
