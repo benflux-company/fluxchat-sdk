@@ -81,6 +81,45 @@ describe('FluxChatWidget', () => {
     expect(document.querySelector('.fcw-footer')).toBeNull();
   });
 
+  it('H1: does not intercept fetch by default (autoCapture defaults to false)', () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      new FluxChatWidget({ apiKey: 'k' });
+      expect(globalThis.fetch).toBe(mockFetch);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('H1: intercepts fetch only when autoCapture is explicitly enabled', () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      new FluxChatWidget({ apiKey: 'k', autoCapture: true });
+      expect(globalThis.fetch).not.toBe(mockFetch);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('H2: escapes quotes so a message URL cannot break out of the href attribute', () => {
+    const w = new FluxChatWidget({
+      apiKey: 'k',
+      greeting: 'See https://evil.test/"onmouseover="alert(1)"x="',
+    });
+    w.open();
+    const bubble = document.querySelector('.fcw-row.bot .fcw-bubble') as HTMLElement;
+    const anchor = bubble.querySelector('a');
+    expect(anchor).not.toBeNull();
+    // The whole malicious payload must stay inert data on the single href
+    // attribute — no separate onmouseover attribute was created by the
+    // quote breaking out of it.
+    expect(anchor?.attributes.length).toBe(1);
+    expect(anchor?.attributes[0]?.name).toBe('href');
+    expect(anchor?.getAttribute('onmouseover')).toBeNull();
+  });
+
   it('escapes HTML in messages (no XSS) and sends to the API', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

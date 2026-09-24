@@ -68,7 +68,11 @@ function resolve(options: WidgetOptions): Resolved {
     showBranding: options.showBranding ?? true,
     autoEnvDetect: options.autoEnvDetect ?? true,
     autoContext: options.autoContext ?? true,
-    autoCapture: options.autoCapture ?? true,
+    // H1 (audit 2026-09-24): passive capture reads localStorage and
+    // intercepts the host page's own fetch/XHR calls. That's a meaningful
+    // amount of access to grant by default on every install — require an
+    // explicit opt-in instead.
+    autoCapture: options.autoCapture ?? false,
     autoCrawl: options.autoCrawl ?? false,
     avatarUrl: options.avatarUrl,
     logoUrl: options.logoUrl,
@@ -80,10 +84,17 @@ function resolve(options: WidgetOptions): Resolved {
 
 /** Escape HTML, then apply a tiny safe subset of markdown (**bold**, links, newlines). */
 function renderMarkup(text: string): string {
+  // H2 (audit 2026-09-24): quotes weren't escaped, so a bot/user message
+  // containing a URL like `https://x/"onmouseover="alert(1)` broke out of
+  // the href="..." attribute below and injected an event handler. Escaping
+  // quotes up front makes the escaped text (and any URL captured from it)
+  // safe to embed inside an HTML attribute.
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
