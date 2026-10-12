@@ -1,0 +1,30 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fcg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#00C2FF" />
+      <stop offset="1" stop-color="#0099FF" />
+    </linearGradient>
+    <mask id="fcm" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect width="100" height="100" fill="#fff" />
+      <path d="M94,42 L50,42 A26,26 0 0 0 50,94 L94,94 Z" fill="#000" stroke="#000" stroke-width="9" stroke-linejoin="round" />
+    </mask>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0B1220" />
+
+  <text x="80" y="200" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="700" letter-spacing="2" fill="#0099FF">SDK OPEN SOURCE · LICENCE MIT</text>
+
+  <text font-family="Inter Display, Inter, system-ui, sans-serif" font-size="52" font-weight="700" fill="#FFFFFF">
+    <tspan x="80" y="270">Le chat temps réel de</tspan>
+    <tspan x="80" y="334">vos produits, en une</tspan>
+    <tspan x="80" y="398">ligne de code.</tspan>
+  </text>
+
+  <rect x="80" y="440" width="300" height="48" rx="10" fill="#111A2E" />
+  <text x="104" y="470" font-family="JetBrains Mono, ui-monospace, monospace" font-size="16" fill="#DCE4EF">npm i @fluxchat_sdk/sdk</text>
+
+  <g transform="translate(900, 215)">
+    <path d="M6,6 L50,6 A26,26 0 0 1 50,58 L6,58 Z" fill="url(#fcg)" mask="url(#fcm)" />
+    <path d="M94,42 L50,42 A26,26 0 0 0 50,94 L94,94 Z" fill="#FFFFFF" />
+  </g>
+</svg>

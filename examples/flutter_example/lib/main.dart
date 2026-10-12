@@ -31,15 +31,15 @@ class FluxChatExampleApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          // Seed with the FluxChat indigo — override with your brand colour.
-          seedColor: const Color(0xFF4F46E5),
+          // Seed with Bleu Flux (charte graphique v1.1) — override with your brand colour.
+          seedColor: const Color(0xFF0099FF),
           brightness: Brightness.light,
         ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4F46E5),
+          seedColor: const Color(0xFF0099FF),
           brightness: Brightness.dark,
         ),
       ),
@@ -98,7 +98,7 @@ class _HomeScreen extends StatelessWidget {
                 'The FAB in the bottom-right corner is already active. '
                 'Tap it to open the chat panel.',
             icon: Icons.layers_rounded,
-            color: Colors.indigo,
+            color: const Color(0xFF0099FF),
           ),
           const SizedBox(height: 12),
           _DemoCard(
@@ -364,7 +364,7 @@ class _ThemeShowcase extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final seeds = [
-      ('Indigo (default)', const Color(0xFF4F46E5)),
+      ('Flux Blue (default)', const Color(0xFF0099FF)),
       ('Teal', Colors.teal),
       ('Rose', Colors.pink),
       ('Amber', Colors.amber),

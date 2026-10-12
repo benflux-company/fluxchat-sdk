@@ -15,7 +15,7 @@ export interface WidgetOptions {
   /** Logo image URL shown in the header (optional). */
   logoUrl?: string;
 
-  /** Primary brand color (any CSS color). Default: #4f46e5. */
+  /** Primary brand color (any CSS color). Default: #0099ff. */
   primaryColor?: string;
   /** Initial color theme. Default: 'light'. */
   theme?: 'light' | 'dark';
@@ -30,7 +30,7 @@ export interface WidgetOptions {
   mode?: 'floating' | 'inline';
   /** Launcher corner in floating mode. Default: 'right'. */
   position?: 'right' | 'left';
-  /** Border radius in px for the panel. Default: 20. */
+  /** Border radius in px for the panel. Default: 18. */
   radius?: number;
   /** CSS z-index for the widget. Default: 2147483000. */
   zIndex?: number;

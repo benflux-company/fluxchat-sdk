@@ -23,7 +23,9 @@ function detectEnv(apiKey: string, autoDetect: boolean): 'dev' | 'prod' {
 }
 
 const ICONS = {
-  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+  // FluxChat symbol (charte v1.1, piste C « Échange ») — flat white fill, the
+  // launcher background already provides --fcw-primary as the blue backdrop.
+  chat: '<svg viewBox="6 6 88 88" fill="none"><defs><mask id="fcw-logo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#fff"/><path d="M94,42 L50,42 A26,26 0 0 0 50,94 L94,94 Z" fill="#000" stroke="#000" stroke-width="9" stroke-linejoin="round"/></mask></defs><path d="M6,6 L50,6 A26,26 0 0 1 50,58 L6,58 Z" fill="currentColor" mask="url(#fcw-logo-mask)"/><path d="M94,42 L50,42 A26,26 0 0 0 50,94 L94,94 Z" fill="currentColor"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="vertical-align:-1px"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg>',
@@ -63,12 +65,12 @@ function resolve(options: WidgetOptions): Resolved {
     clientName: options.clientName ?? '',
     assistantName: options.assistantName ?? 'Assistant',
     headerSubtitle: options.headerSubtitle ?? 'En ligne',
-    primaryColor: options.primaryColor ?? '#4f46e5',
+    primaryColor: options.primaryColor ?? '#0099ff',
     theme: options.theme ?? 'light',
     themeToggle: options.themeToggle ?? true,
     mode: options.mode ?? 'floating',
     position: options.position ?? 'right',
-    radius: options.radius ?? 20,
+    radius: options.radius ?? 18,
     zIndex: options.zIndex ?? 2147483000,
     greeting: options.greeting ?? 'Bonjour, comment puis-je vous aider ?',
     placeholder: options.placeholder ?? 'Écrivez votre message…',
