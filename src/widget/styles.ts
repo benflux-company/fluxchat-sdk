@@ -6,7 +6,8 @@ export function widgetCss(): string {
   return `
 .fcw-root, .fcw-root * { box-sizing: border-box; }
 .fcw-root {
-  --fcw-primary: #4f46e5;
+  /* FluxChat charte graphique v1.1 — Bleu Flux */
+  --fcw-primary: #0099ff;
   --fcw-primary-contrast: #ffffff;
   --fcw-bg: #ffffff;
   --fcw-surface: #f6f7f9;
@@ -14,9 +15,9 @@ export function widgetCss(): string {
   --fcw-muted: #6b7280;
   --fcw-border: #e6e8eb;
   --fcw-bot-bubble: #f1f3f5;
-  --fcw-radius: 20px;
+  --fcw-radius: 18px;
   position: fixed; bottom: 24px; z-index: 2147483000;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--fcw-text);
 }
 .fcw-root[data-theme="dark"] {
@@ -34,10 +35,10 @@ export function widgetCss(): string {
 .fcw-launcher {
   width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--fcw-primary); color: var(--fcw-primary-contrast);
-  box-shadow: 0 10px 30px rgba(0,0,0,.22); display: grid; place-items: center;
+  box-shadow: 0 6px 18px rgba(0,153,255,.35); display: grid; place-items: center;
   transition: transform .18s ease, box-shadow .18s ease;
 }
-.fcw-launcher:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 14px 36px rgba(0,0,0,.28); }
+.fcw-launcher:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 10px 26px rgba(0,153,255,.4); }
 .fcw-launcher:active { transform: scale(.96); }
 .fcw-launcher svg { width: 28px; height: 28px; }
 
@@ -101,11 +102,11 @@ export function widgetCss(): string {
 .fcw-row { display: flex; }
 .fcw-row.user { justify-content: flex-end; }
 .fcw-bubble {
-  max-width: 80%; padding: 10px 13px; border-radius: 16px; font-size: 14px; line-height: 1.5;
+  max-width: 80%; padding: 10px 13px; border-radius: 18px; font-size: 14px; line-height: 1.5;
   word-wrap: break-word; white-space: pre-wrap;
 }
-.fcw-row.bot .fcw-bubble { background: var(--fcw-bot-bubble); color: var(--fcw-text); border-bottom-left-radius: 4px; }
-.fcw-row.user .fcw-bubble { background: var(--fcw-primary); color: var(--fcw-primary-contrast); border-bottom-right-radius: 4px; }
+.fcw-row.bot .fcw-bubble { background: var(--fcw-bot-bubble); color: var(--fcw-text); border-bottom-left-radius: 6px; }
+.fcw-row.user .fcw-bubble { background: var(--fcw-primary); color: var(--fcw-primary-contrast); border-bottom-right-radius: 6px; }
 .fcw-bubble a { color: inherit; text-decoration: underline; }
 .fcw-bubble strong { font-weight: 700; }
 

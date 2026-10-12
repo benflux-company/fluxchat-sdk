@@ -1,15 +1,17 @@
 <div align="center">
 
+<img src=".github/social-preview.svg" alt="FluxChat SDK" width="100%" />
+
 # FluxChat SDK
 
 **The official SDK, CLI &amp; embeddable chat widget for [FluxChat](https://fluxchat-corp.com).**
 
 Drop a beautiful AI assistant into any product in minutes — with per-request context, a customizable persona, and full knowledge-base control.
 
-[![npm version](https://img.shields.io/npm/v/@fluxchat_sdk/sdk?color=4f46e5)](https://www.npmjs.com/package/@fluxchat_sdk/sdk)
-[![license](https://img.shields.io/npm/l/@fluxchat_sdk/sdk?color=4f46e5)](./LICENSE)
-[![types](https://img.shields.io/npm/types/@fluxchat_sdk/sdk?color=4f46e5)](./dist/index.d.ts)
-[![node](https://img.shields.io/node/v/@fluxchat_sdk/sdk?color=4f46e5)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@fluxchat_sdk/sdk?color=0099FF)](https://www.npmjs.com/package/@fluxchat_sdk/sdk)
+[![license](https://img.shields.io/npm/l/@fluxchat_sdk/sdk?color=0099FF)](./LICENSE)
+[![types](https://img.shields.io/npm/types/@fluxchat_sdk/sdk?color=0099FF)](./dist/index.d.ts)
+[![node](https://img.shields.io/node/v/@fluxchat_sdk/sdk?color=0099FF)](https://nodejs.org)
 
 [Dashboard](https://fluxchat-corp.com) &nbsp;·&nbsp; [API](https://api.fluxchat-corp.com) &nbsp;·&nbsp; [Benflux](https://benflux-corp.com)
 

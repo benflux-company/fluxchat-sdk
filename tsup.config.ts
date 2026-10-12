@@ -43,4 +43,28 @@ export default defineConfig([
     clean: false,
     banner: { js: '#!/usr/bin/env node' },
   },
+  {
+    // React wrapper component — react is an external peer dependency.
+    entry: { 'react/index': 'src/react/index.ts' },
+    format: ['esm', 'cjs'],
+    dts: true,
+    sourcemap: true,
+    clean: false,
+    external: ['react'],
+    outExtension({ format }) {
+      return { js: format === 'cjs' ? '.cjs' : '.js' };
+    },
+  },
+  {
+    // Vue wrapper component — vue is an external peer dependency.
+    entry: { 'vue/index': 'src/vue/index.ts' },
+    format: ['esm', 'cjs'],
+    dts: true,
+    sourcemap: true,
+    clean: false,
+    external: ['vue'],
+    outExtension({ format }) {
+      return { js: format === 'cjs' ? '.cjs' : '.js' };
+    },
+  },
 ]);

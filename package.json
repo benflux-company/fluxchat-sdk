@@ -1,6 +1,6 @@
 {
   "name": "@fluxchat_sdk/sdk",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Official FluxChat SDK, CLI & embeddable chat widget — integrate the FluxChat AI assistant into any app: per-request context, persona, knowledge base, and a beautiful customizable widget.",
   "keywords": [
     "fluxchat",
@@ -38,7 +38,17 @@
       "import": "./dist/widget/index.js",
       "require": "./dist/widget/index.cjs"
     },
-    "./widget.css": "./dist/widget.global.js"
+    "./widget.css": "./dist/widget.global.js",
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue/index.js",
+      "require": "./dist/vue/index.cjs"
+    }
   },
   "unpkg": "dist/widget.global.js",
   "jsdelivr": "dist/widget.global.js",
@@ -68,12 +78,23 @@
     "commander": "^12.1.0",
     "picocolors": "^1.1.1"
   },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "vue": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "vue": { "optional": true }
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
     "jsdom": "^25.0.1",
+    "react": "^18.3.0",
     "tsup": "^8.3.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "vue": "^3.4.0"
   },
   "publishConfig": {
     "access": "public"
