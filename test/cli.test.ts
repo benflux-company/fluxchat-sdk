@@ -56,6 +56,6 @@ describe('buildProgram', () => {
     const program = buildProgram();
     const kb = program.commands.find((c) => c.name() === 'kb')!;
     const subs = kb.commands.map((c) => c.name()).sort();
-    expect(subs).toEqual(['create', 'delete', 'get', 'list', 'update']);
+    expect(subs).toEqual(['crawl', 'create', 'delete', 'get', 'list', 'update']);
   });
 });
