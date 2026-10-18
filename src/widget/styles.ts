@@ -5,6 +5,17 @@
 export function widgetCss(): string {
   return `
 .fcw-root, .fcw-root * { box-sizing: border-box; }
+/* Host pages routinely style every button and input globally — a padding on
+   all buttons is the common one, and a host rule setting padding 6px 11px
+   beats anything the widget declares for a property it never set. With
+   border-box and a fixed 30px icon button, 22px of inherited padding leaves an
+   8px content box: the 17px glyph overflows it and lands 4.5px off-centre.
+   Neutralise the host chrome the widget does not want on every control it
+   owns; the controls that DO want padding set it themselves below. */
+.fcw-root button, .fcw-root input, .fcw-root textarea {
+  margin: 0; font-family: inherit; letter-spacing: normal;
+  -webkit-appearance: none; appearance: none;
+}
 .fcw-root {
   /* FluxChat charte graphique v1.1 — Bleu Flux */
   --fcw-primary: #0099ff;
@@ -50,7 +61,7 @@ export function widgetCss(): string {
 
 /* Launcher */
 .fcw-launcher {
-  width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
+  width: 60px; height: 60px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
   background: var(--fcw-primary); color: var(--fcw-primary-contrast);
   box-shadow: 0 6px 18px rgba(0,153,255,.35); display: grid; place-items: center;
   transition: transform .18s ease, box-shadow .18s ease;
@@ -107,7 +118,7 @@ export function widgetCss(): string {
   border-radius: 5px; padding: 2px 7px; line-height: 1.4; white-space: nowrap;
 }
 .fcw-hbtn {
-  background: rgba(255,255,255,.16); border: none; cursor: pointer; color: inherit;
+  background: rgba(255,255,255,.16); border: none; padding: 0; cursor: pointer; color: inherit;
   width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
   transition: background .15s ease;
 }
@@ -192,7 +203,7 @@ export function widgetCss(): string {
 }
 .fcw-input:focus { border-color: var(--fcw-primary); }
 .fcw-send {
-  flex: 0 0 auto; width: 40px; height: 40px; border: none; border-radius: 12px; cursor: pointer;
+  flex: 0 0 auto; width: 40px; height: 40px; border: none; padding: 0; border-radius: 12px; cursor: pointer;
   background: var(--fcw-primary); color: var(--fcw-primary-contrast); display: grid; place-items: center;
   transition: opacity .15s ease, transform .1s ease;
 }
