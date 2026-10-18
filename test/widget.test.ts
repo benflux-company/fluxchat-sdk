@@ -6,6 +6,10 @@ describe('FluxChatWidget', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     document.head.innerHTML = '';
+    // A successful handoff persists the visitor's ticket so the thread
+    // survives a reload — without this, one test's ticket would carry into
+    // the next widget built with the same API key.
+    localStorage.clear();
   });
 
   it('throws without an apiKey', () => {
@@ -211,5 +215,182 @@ describe('FluxChatWidget', () => {
   it('human handoff: can be disabled', () => {
     new FluxChatWidget({ apiKey: 'k', humanHandoff: false });
     expect(document.querySelector('.fcw-handoff')).toBeNull();
+  });
+});
+
+// Once a visitor has been handed off to a human, the widget stops talking to
+// the bot and becomes a view onto their support ticket: one continuous
+// thread, polled, surviving a reload. The handoff used to end at
+// "we'll e-mail you".
+describe('FluxChatWidget — support thread after handoff', () => {
+  const BASE = 'https://api.test/api/v1';
+
+  const thread = (over: Partial<Record<string, unknown>> = {}) => ({
+    ticketId: 't1',
+    subject: 'Aide',
+    status: 'open',
+    agentConnected: false,
+    agentName: null,
+    closed: false,
+    messages: [{ id: 'm1', content: 'Aide', role: 'visitor', createdAt: '2026-10-18T10:00:00Z' }],
+    ...over,
+  });
+
+  // One mock for every route the thread uses, so a test only declares what
+  // the server currently holds.
+  function mockApi(state: { thread: ReturnType<typeof thread>; escalateOk?: boolean }) {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/public/bot/escalate')) {
+        return state.escalateOk === false
+          ? { ok: false, status: 500, json: async () => ({ message: 'boom' }) }
+          : { ok: true, json: async () => ({ success: true, data: { ticketId: 't1', status: 'open' } }) };
+      }
+      if (url.includes('/public/bot/tickets/t1/messages')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        state.thread.messages = [
+          ...state.thread.messages,
+          { id: `m${state.thread.messages.length + 1}`, content: body.content, role: 'visitor', createdAt: '2026-10-18T10:05:00Z' },
+        ];
+        return { ok: true, json: async () => ({ success: true, data: { ok: true } }) };
+      }
+      if (url.includes('/public/bot/tickets/t1')) {
+        return { ok: true, json: async () => ({ success: true, data: state.thread }) };
+      }
+      return { ok: true, json: async () => ({ success: true, data: { reply: 'bot reply' } }) };
+    });
+  }
+
+  async function escalate(opts: { apiKey?: string } = {}) {
+    const state = { thread: thread() };
+    const fetchMock = mockApi(state);
+    vi.stubGlobal('fetch', fetchMock);
+    const widget = new FluxChatWidget({ apiKey: opts.apiKey ?? 'secret', baseUrl: BASE });
+    (document.querySelector('.fcw-handoff') as HTMLButtonElement).click();
+    const card = document.querySelector('.fcw-handoff-card') as HTMLElement;
+    (card.querySelector('[data-field="name"]') as HTMLInputElement).value = 'Jordan';
+    (card.querySelector('[data-field="email"]') as HTMLInputElement).value = 'jordan@example.com';
+    (card.querySelector('[data-field="message"]') as HTMLTextAreaElement).value = 'Aide';
+    (card.querySelector('.fcw-handoff-submit') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector('.fcw-handoff-card')).toBeNull());
+    return { widget, state, fetchMock };
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    document.head.innerHTML = '';
+    localStorage.clear();
+  });
+
+  it('shows the waiting strip and remembers the ticket', async () => {
+    await escalate();
+
+    const banner = document.querySelector('.fcw-banner') as HTMLElement;
+    await vi.waitFor(() => expect(banner.dataset.tone).toBe('waiting'));
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toContain('transmise');
+    expect(JSON.parse(localStorage.getItem('fcw_ticket_secret') ?? '{}')).toMatchObject({
+      id: 't1',
+      email: 'jordan@example.com',
+    });
+  });
+
+  it('sends the next message into the ticket, not to the bot', async () => {
+    const { widget, fetchMock } = await escalate();
+    fetchMock.mockClear();
+
+    widget.send('une précision');
+
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/tickets/t1/messages'));
+      expect(call).toBeDefined();
+      expect(JSON.parse(String((call![1] as RequestInit).body))).toMatchObject({
+        email: 'jordan@example.com',
+        content: 'une précision',
+      });
+    });
+    // The bot route must not be touched once a human owns the conversation.
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/public/bot/ask'))).toBe(false);
+  });
+
+  it('renders an agent reply once, with the agent name, and flips the strip', async () => {
+    const { state } = await escalate();
+
+    state.thread = thread({
+      agentConnected: true,
+      agentName: 'Awa',
+      status: 'in_progress',
+      messages: [
+        ...thread().messages,
+        { id: 'm2', content: 'Bonjour, je regarde ça.', role: 'agent', createdAt: '2026-10-18T10:02:00Z' },
+      ],
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(document.querySelectorAll('.fcw-row.agent').length).toBe(1);
+      },
+      { timeout: 8000 },
+    );
+    expect(document.querySelector('.fcw-agent-name')?.textContent).toContain('Awa');
+    expect(document.querySelector('.fcw-agent-bubble')?.textContent).toContain('je regarde');
+    expect((document.querySelector('.fcw-banner') as HTMLElement).dataset.tone).toBe('agent');
+
+    // Still exactly one after further polls — ids are deduped, not re-rendered.
+    await new Promise((r) => setTimeout(r, 6000));
+    expect(document.querySelectorAll('.fcw-row.agent').length).toBe(1);
+  }, 20000);
+
+  it('locks the composer when the ticket is closed and offers a fresh start', async () => {
+    const { state } = await escalate();
+    state.thread = thread({ status: 'closed', closed: true });
+
+    const banner = document.querySelector('.fcw-banner') as HTMLElement;
+    await vi.waitFor(() => expect(banner.dataset.tone).toBe('closed'), { timeout: 8000 });
+    expect((document.querySelector('.fcw-input') as HTMLTextAreaElement).disabled).toBe(true);
+
+    (banner.querySelector('.fcw-banner-action') as HTMLButtonElement).click();
+    expect(banner.hidden).toBe(true);
+    expect((document.querySelector('.fcw-input') as HTMLTextAreaElement).disabled).toBe(false);
+    expect(localStorage.getItem('fcw_ticket_secret')).toBeNull();
+  }, 20000);
+
+  it('restores the whole thread on reload instead of the greeting', async () => {
+    localStorage.setItem('fcw_ticket_secret', JSON.stringify({ id: 't1', email: 'jordan@example.com' }));
+    const state = {
+      thread: thread({
+        agentConnected: true,
+        agentName: 'Awa',
+        messages: [
+          { id: 'm1', content: 'Bonjour !', role: 'bot', createdAt: '2026-10-18T09:00:00Z' },
+          { id: 'm2', content: 'Aide', role: 'visitor', createdAt: '2026-10-18T10:00:00Z' },
+          { id: 'm3', content: 'Je regarde.', role: 'agent', createdAt: '2026-10-18T10:02:00Z' },
+        ],
+      }),
+    };
+    vi.stubGlobal('fetch', mockApi(state));
+
+    const w = new FluxChatWidget({ apiKey: 'secret', baseUrl: BASE, greeting: 'Salut !' });
+    w.open();
+
+    await vi.waitFor(() => expect(document.querySelectorAll('.fcw-row').length).toBe(3));
+    const texts = [...document.querySelectorAll('.fcw-bubble')].map((b) => b.textContent);
+    expect(texts.join(' ')).not.toContain('Salut !');
+    expect(texts.join(' ')).toContain('Je regarde.');
+  });
+
+  it('drops a stale stored ticket instead of trapping the visitor', async () => {
+    localStorage.setItem('fcw_ticket_secret', JSON.stringify({ id: 't1', email: 'jordan@example.com' }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, json: async () => ({ message: 'Ticket not found' }) })),
+    );
+
+    const w = new FluxChatWidget({ apiKey: 'secret', baseUrl: BASE, greeting: 'Salut !' });
+    w.open();
+
+    await vi.waitFor(() => {
+      expect(localStorage.getItem('fcw_ticket_secret')).toBeNull();
+      expect(document.querySelector('.fcw-bubble')?.textContent).toContain('Salut !');
+    });
   });
 });

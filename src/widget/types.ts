@@ -144,7 +144,12 @@ export interface WidgetOptions {
   humanHandoff?: boolean;
   /** Label on the "talk to a human" header button. */
   humanHandoffLabel?: string;
-  /** Message shown after a successful handoff request. */
+  /**
+   * Message shown once the handoff is accepted. The conversation then stays
+   * open in the widget — the visitor's replies and the agent's answers land
+   * in the same thread (polled every 5s), so this should not promise an
+   * e-mail-only follow-up.
+   */
   humanHandoffSuccessMessage?: string;
 }
 
