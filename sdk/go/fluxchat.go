@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -95,6 +96,39 @@ type KnowledgeItem struct {
 // ─── Options ──────────────────────────────────────────────────────────────────
 
 // Option configures the FluxChat client.
+// EscalateResult is returned when a visitor is handed off to a human.
+type EscalateResult struct {
+	// TicketID — keep it, with the e-mail, to follow the thread.
+	TicketID string `json:"ticketId"`
+	// Status at creation ("open", or higher on a priority-support plan).
+	Status string `json:"status"`
+}
+
+// TicketMessage is one line of a ticket thread, labelled by who said it:
+// "bot", "visitor" or "agent".
+type TicketMessage struct {
+	ID        string `json:"id"`
+	Content   string `json:"content"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// TicketThread is a visitor's own support conversation, exactly as the widget
+// shows it to them.
+type TicketThread struct {
+	TicketID string `json:"ticketId"`
+	Subject  string `json:"subject"`
+	// Status is one of "open", "in_progress", "resolved", "closed".
+	Status string `json:"status"`
+	// AgentConnected is true once a human has actually written — not merely
+	// been assigned.
+	AgentConnected bool   `json:"agentConnected"`
+	AgentName      string `json:"agentName"`
+	// Closed means "resolved" or "closed": readable, no longer writable.
+	Closed   bool            `json:"closed"`
+	Messages []TicketMessage `json:"messages"`
+}
+
 type Option func(*Client)
 
 // WithBaseURL overrides the default API base URL.
@@ -170,7 +204,7 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	}
 	c := &Client{
 		apiKey:  apiKey,
-		baseURL: "https://dev-api.fluxchat-corp.com/api/v2",
+		baseURL: "https://api.fluxchat-corp.com/api/v2",
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -230,6 +264,66 @@ func (c *Client) CapturePage(ctx context.Context, url, title, content string) er
 		"content": content,
 	}
 	return c.post(ctx, "/public/bot/pages", payload, nil, false)
+}
+
+// ─── Support: human handoff and the visitor's own thread ──────────────────────
+//
+// The visitor has no FluxChat account and no session: the e-mail they escalated
+// with is what proves the ticket is theirs, on every read and every reply.
+// Treat it like a one-time link you e-mailed them — enough to reach their own
+// conversation, never anyone else's, since the lookup is also scoped to the
+// organization behind the API key.
+//
+// The thread is polled, not pushed: there is no socket on the public surface.
+// Five seconds is the cadence the official widget uses and what the route's
+// rate limit is sized for.
+
+// Escalate hands a visitor off to a human, creating a real support ticket.
+//
+// Pass the same sessionID you use with Ask and everything the bot already said
+// is copied into the ticket, so the agent picks up mid-conversation.
+// Best-effort: the session lives for 2h, after which the ticket simply starts
+// at the visitor's message.
+func (c *Client) Escalate(ctx context.Context, name, email, message, sessionID string) (*EscalateResult, error) {
+	payload := map[string]string{
+		"name":    name,
+		"email":   email,
+		"message": message,
+	}
+	if sessionID != "" {
+		payload["sessionId"] = sessionID
+	}
+	var result EscalateResult
+	if err := c.post(ctx, "/public/bot/escalate", payload, &result, false); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TicketThread reads a visitor's own ticket thread, each line labelled by role.
+//
+// It returns an *APIError with status 404 both when the ticket does not exist
+// and when email is not the one it was raised with: the two cases are
+// deliberately indistinguishable, so a guessed ticket id reveals nothing.
+func (c *Client) TicketThread(ctx context.Context, ticketID, email string) (*TicketThread, error) {
+	path := "/public/bot/tickets/" + url.PathEscape(ticketID) +
+		"?email=" + url.QueryEscape(email)
+	var result TicketThread
+	if err := c.get(ctx, path, &result, false); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReplyToTicket posts the visitor's reply into their own ticket.
+//
+// A reply to a "resolved" ticket reopens it; a "closed" one refuses the write
+// (403) rather than swallowing a message nobody will read.
+func (c *Client) ReplyToTicket(ctx context.Context, ticketID, email, content string) error {
+	payload := map[string]string{"email": email, "content": content}
+	return c.post(ctx,
+		"/public/bot/tickets/"+url.PathEscape(ticketID)+"/messages",
+		payload, nil, false)
 }
 
 // ─── Knowledge CRUD ───────────────────────────────────────────────────────────

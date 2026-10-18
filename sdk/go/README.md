@@ -36,7 +36,7 @@ func main() {
 
 ```go
 ```go
-// URL de base personnalisée (par défaut: https://dev-api.fluxchat-corp.com/api/v2)
+// URL de base personnalisée (par défaut: https://api.fluxchat-corp.com/api/v2)
 client := fluxchat.NewClient("sk-...",
     fluxchat.WithBaseURL("https://mon-proxy.com/api/v2"),
 )

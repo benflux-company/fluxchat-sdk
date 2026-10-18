@@ -8,7 +8,7 @@ Includes a **typed API client**, a **floating FAB widget**, and a **full-screen 
 [![license](https://img.shields.io/github/license/benflux-company/fluxchat-sdk?color=4f46e5)](../../LICENSE)
 [![flutter](https://img.shields.io/badge/flutter-%3E%3D3.16-4f46e5)](https://flutter.dev)
 
-[Dashboard](https://fluxchat-corp.com) · [API](https://dev-api.fluxchat-corp.com) · [Benflux](https://benflux-corp.com)
+[Dashboard](https://fluxchat-corp.com) · [API](https://api.fluxchat-corp.com) · [Benflux](https://benflux-corp.com)
 
 ---
 

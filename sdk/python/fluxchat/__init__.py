@@ -1,0 +1,25 @@
+"""Public API for the fluxchat package."""
+
+from .client import FluxChat
+from .exceptions import FluxChatApiError, FluxChatNetworkError, FluxChatConfigError
+from .models import (
+    AskResponse,
+    EscalateResult,
+    KeyInfo,
+    KnowledgeItem,
+    TicketMessage,
+    TicketThread,
+)
+
+__all__ = [
+    "FluxChat",
+    "FluxChatApiError",
+    "FluxChatNetworkError",
+    "FluxChatConfigError",
+    "AskResponse",
+    "KeyInfo",
+    "KnowledgeItem",
+    "EscalateResult",
+    "TicketThread",
+    "TicketMessage",
+]
