@@ -11,7 +11,7 @@ import 'package:dio/dio.dart';
 import 'errors.dart';
 import 'types.dart';
 
-const _defaultBaseUrl = 'https://dev-api.fluxchat-corp.com/api/v2';
+const _defaultBaseUrl = 'https://api.fluxchat-corp.com/api/v2';
 
 /// Thin wrapper around [Dio] that centralises authentication, error mapping,
 /// and unwrapping of the standard FluxChat envelope `{ success, data, timestamp }`.

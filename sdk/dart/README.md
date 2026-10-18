@@ -8,7 +8,7 @@ Includes a **typed API client**, a **floating FAB widget**, and a **full-screen 
 [![license](https://img.shields.io/github/license/benflux-company/fluxchat-sdk?color=4f46e5)](../../LICENSE)
 [![flutter](https://img.shields.io/badge/flutter-%3E%3D3.16-4f46e5)](https://flutter.dev)
 
-[Dashboard](https://fluxchat-corp.com) · [API](https://dev-api.fluxchat-corp.com) · [Benflux](https://benflux-corp.com)
+[Dashboard](https://fluxchat-corp.com) · [API](https://api.fluxchat-corp.com) · [Benflux](https://benflux-corp.com)
 
 ---
 
@@ -228,6 +228,46 @@ The returned string is passed as the `context` field and treated by the bot as a
 | `onError` | `void Function(Object)?` | — | Called on network or API errors. |
 
 ---
+
+## Human handoff (support thread)
+
+When the bot can't help, hand the visitor to a human — and keep the
+conversation in the **same thread**: they read it back, the agent answers
+into it.
+
+```dart
+// 1. Hand off. With the same sessionId you pass to ask(), everything the bot
+//    already said is copied into the ticket, so the agent picks up mid-flow.
+final ticket = await fluxchat.support.escalate(EscalateOptions(
+  name: 'Jordan Mbeki',
+  email: 'jordan@example.com',
+  message: 'My transfer has been stuck since yesterday.',
+  sessionId: mySessionId,
+));
+
+// 2. Follow it. Keep (ticketId, email) — the e-mail is what proves the ticket
+//    is theirs: no account, no token.
+final thread = await fluxchat.support.thread(ticket.ticketId, 'jordan@example.com');
+for (final m in thread.messages) {
+  print('${m.role.name}: ${m.content}'); // bot | visitor | agent
+}
+if (thread.agentConnected) print('${thread.agentName} is answering');
+
+// 3. Let them reply into it.
+await fluxchat.support.reply(
+  ticketId: ticket.ticketId,
+  email: 'jordan@example.com',
+  content: 'The reference is 4821.',
+);
+```
+
+- **A wrong e-mail and a missing ticket both return 404**, deliberately — a
+  guessed ticket id reveals nothing.
+- **Polled, not pushed**: 5s is the official widget's cadence (limits: 60
+  reads/min, 30 replies/min, 5 escalations/min).
+- Statuses: `open` → `in_progress` → `resolved` → `closed`. Replying to a
+  `resolved` ticket reopens it; a `closed` one refuses the write (**403**).
+- Requires the organization's plan to include `supportTickets`.
 
 ## SDK reference
 

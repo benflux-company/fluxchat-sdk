@@ -36,7 +36,7 @@ func main() {
 
 ```go
 ```go
-// URL de base personnalisée (par défaut: https://dev-api.fluxchat-corp.com/api/v2)
+// URL de base personnalisée (par défaut: https://api.fluxchat-corp.com/api/v2)
 client := fluxchat.NewClient("sk-...",
     fluxchat.WithBaseURL("https://mon-proxy.com/api/v2"),
 )
@@ -96,6 +96,29 @@ updated, err := client.UpdateKnowledge(ctx, item.ID, patch)
 // Supprimer
 err = client.DeleteKnowledge(ctx, item.ID)
 ```
+
+## Transfert vers un humain (fil de support)
+
+```go
+// 1. Transfert — avec le même sessionID qu'Ask, le fil du bot suit.
+ticket, err := client.Escalate(ctx, "Jordan Mbeki", "jordan@example.com",
+    "Mon virement est bloqué.", mySessionID)
+
+// 2. Suivi : l'e-mail est la preuve que le ticket est le sien.
+thread, err := client.TicketThread(ctx, ticket.TicketID, "jordan@example.com")
+for _, m := range thread.Messages {
+    fmt.Println(m.Role, m.Content) // bot | visitor | agent
+}
+
+// 3. Le visiteur répond dans le même fil.
+err = client.ReplyToTicket(ctx, ticket.TicketID, "jordan@example.com", "Référence 4821.")
+```
+
+- **Mauvais e-mail et ticket inexistant renvoient tous deux 404**, à dessein.
+- **Polling** : 5 s (quotas 60 lectures/min, 30 réponses/min, 5 escalades/min).
+- `open` → `in_progress` → `resolved` → `closed`. `resolved` se rouvre à la
+  réponse ; `closed` refuse l'écriture (**403**).
+- Nécessite le plan `supportTickets`.
 
 ## Gestion des erreurs
 

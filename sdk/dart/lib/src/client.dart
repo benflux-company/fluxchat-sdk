@@ -7,6 +7,7 @@ import 'http_client.dart';
 import 'resources/bot_resource.dart';
 import 'resources/config_resource.dart';
 import 'resources/knowledge_resource.dart';
+import 'resources/support_resource.dart';
 import 'types.dart';
 
 export 'errors.dart';
@@ -54,6 +55,7 @@ class FluxChat {
     _bot = BotResource(internalHttp);
     knowledge = KnowledgeResource(internalHttp, organizationId);
     config = ConfigResource(internalHttp, organizationId);
+    support = SupportResource(internalHttp);
   }
 
   late final BotResource _bot;
@@ -63,6 +65,10 @@ class FluxChat {
 
   /// Persona configuration (assistant name, tone, style rules).
   late final ConfigResource config;
+
+  /// Human handoff and the visitor's own support thread.
+  /// Requires the organization's plan to include `supportTickets`.
+  late final SupportResource support;
 
   // ─── Convenience shortcuts ────────────────────────────────────────────────
 

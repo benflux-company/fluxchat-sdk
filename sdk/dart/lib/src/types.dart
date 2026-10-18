@@ -26,7 +26,7 @@ class FluxChatClientOptions {
   final String? token;
 
   /// Override the API base URL including the version prefix.
-  /// Defaults to `https://dev-api.fluxchat-corp.com/api/v2`.
+  /// Defaults to `https://api.fluxchat-corp.com/api/v2`.
   final String? baseUrl;
 
   /// Default organization id used by knowledge / config helpers.
@@ -296,4 +296,120 @@ class BotConfig {
         if (customInstructions != null) 'customInstructions': customInstructions,
         if (captureTrainingData != null) 'captureTrainingData': captureTrainingData,
       };
+}
+
+// ─── Support: human handoff and the visitor's own thread ─────────────────────
+
+/// What a visitor submits when they ask for a human.
+class EscalateOptions {
+  const EscalateOptions({
+    required this.name,
+    required this.email,
+    required this.message,
+    this.sessionId,
+  });
+
+  /// Visitor's name, as they typed it.
+  final String name;
+
+  /// Visitor's e-mail — also what proves the resulting ticket is theirs.
+  final String email;
+
+  /// What they want help with. Becomes the ticket's first message.
+  final String message;
+
+  /// The same session id you pass to `ask`. When present, the bot
+  /// conversation so far is copied into the ticket so the agent has context.
+  final String? sessionId;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'email': email,
+        'message': message,
+        if (sessionId != null) 'sessionId': sessionId,
+      };
+}
+
+/// Response from [SupportResource.escalate].
+class EscalateResponse {
+  const EscalateResponse({required this.ticketId, required this.status});
+
+  /// Id of the created ticket — keep it, with the e-mail, to follow the thread.
+  final String ticketId;
+
+  /// Status at creation (`open`, or higher on a priority-support plan).
+  final String status;
+
+  factory EscalateResponse.fromJson(Map<String, dynamic> json) =>
+      EscalateResponse(
+        ticketId: json['ticketId'] as String? ?? '',
+        status: json['status'] as String? ?? 'open',
+      );
+}
+
+/// Who said a line in a ticket thread.
+enum TicketMessageRole { bot, visitor, agent }
+
+/// One line of a ticket conversation.
+class TicketMessage {
+  const TicketMessage({
+    required this.id,
+    required this.content,
+    required this.role,
+    this.createdAt,
+  });
+
+  final String id;
+  final String content;
+  final TicketMessageRole role;
+  final String? createdAt;
+
+  factory TicketMessage.fromJson(Map<String, dynamic> json) => TicketMessage(
+        id: json['id'] as String? ?? '',
+        content: json['content'] as String? ?? '',
+        role: TicketMessageRole.values.firstWhere(
+          (r) => r.name == json['role'],
+          orElse: () => TicketMessageRole.visitor,
+        ),
+        createdAt: json['createdAt'] as String?,
+      );
+}
+
+/// A visitor's ticket thread, exactly as they see it in the widget.
+class TicketThread {
+  const TicketThread({
+    required this.ticketId,
+    required this.subject,
+    required this.status,
+    required this.agentConnected,
+    required this.agentName,
+    required this.closed,
+    required this.messages,
+  });
+
+  final String ticketId;
+  final String subject;
+
+  /// `open` | `in_progress` | `resolved` | `closed`.
+  final String status;
+
+  /// True once a human has actually written — not merely been assigned.
+  final bool agentConnected;
+  final String? agentName;
+
+  /// `resolved` or `closed`: the visitor can read but no longer write.
+  final bool closed;
+  final List<TicketMessage> messages;
+
+  factory TicketThread.fromJson(Map<String, dynamic> json) => TicketThread(
+        ticketId: json['ticketId'] as String? ?? '',
+        subject: json['subject'] as String? ?? '',
+        status: json['status'] as String? ?? 'open',
+        agentConnected: json['agentConnected'] as bool? ?? false,
+        agentName: json['agentName'] as String?,
+        closed: json['closed'] as bool? ?? false,
+        messages: ((json['messages'] as List<dynamic>?) ?? const [])
+            .map((m) => TicketMessage.fromJson(m as Map<String, dynamic>))
+            .toList(growable: false),
+      );
 }

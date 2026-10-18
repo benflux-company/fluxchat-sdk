@@ -17,6 +17,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - `humanHandoffSuccessMessage`'s default no longer promises an e-mail-only follow-up — the reply lands in the widget.
 - Ownership of a visitor's own ticket is the e-mail they escalated with: no account, no session, no token.
 
+### Stacks
+- **Six new language SDKs**: Python, PHP, Swift, Kotlin, .NET and React Native (contributed by @benjaminmugangu in #17, #18, #20, #22, #23, #24), each with the handoff surface. Eleven stacks total: TS/JS, React, Vue, React Native, Flutter/Dart, Python, PHP, Go, Swift, Kotlin, .NET.
+- **`escalate` / `thread` / `reply` in every stack**, idiomatic to each (resource class, inner class, or methods on the client), with the visitor's e-mail url-encoded everywhere — unencoded, a `+` in an address looks up a different mailbox.
+
+### Fixed
+- **Every non-TypeScript SDK defaulted to `dev-api.fluxchat-corp.com`** — the dev cluster. Any integrator who forgot `baseUrl` was sending their customers' traffic to dev. All eight now default to `https://api.fluxchat-corp.com/api/v2`, like the TypeScript client.
+
 ### Requires
 - An API running api-chat-integration ≥ the support-thread release (`GET|POST /api/v2/public/bot/tickets/:id[/messages]`). Against an older API the handoff still creates a ticket; only the in-widget thread is unavailable.
 
