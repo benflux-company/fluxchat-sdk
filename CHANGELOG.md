@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.3.0] — 2026-10-18
 
 ### Added
+- **`client.support`** — the handoff is no longer widget-only. `escalate()` creates the ticket, `thread(ticketId, email)` reads it back labelled by role (`bot` / `visitor` / `agent`), `reply()` posts into it. Ownership is the e-mail the visitor escalated with: a wrong e-mail and a missing ticket both return 404 on purpose.
+- **`fluxchat support escalate | thread | reply`** — the same three operations from the terminal, with a readable thread view (`--json` for the raw payload).
 - **Human handoff that stays a conversation.** `humanHandoff` collects name / e-mail / message inline and posts to `POST /public/bot/escalate`; from then on the widget is a view onto that support ticket rather than an e-mail dead end. The composer writes into the ticket, the thread is polled every 5s, and agent replies arrive in their own bubble with the agent's name.
 - **Thread resumes across visits.** The ticket (`{id, email}`) is kept in `localStorage`, so a reload or a return visit restores the whole conversation — including the bot turns from before the handoff, which the backend copies into the ticket. A ticket that no longer exists (404) is dropped instead of trapping the visitor in a dead thread.
 - **Status strip** under the header: transmitted (amber) → *<agent> is answering* (emerald) → closed (slate, composer locked, with a "new conversation" reset).

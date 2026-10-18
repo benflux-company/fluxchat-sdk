@@ -264,5 +264,92 @@ export function buildProgram(): Command {
       }
     });
 
+  // ── support ───────────────────────────────────────────
+  const support = program
+    .command('support')
+    .description('Human handoff and the visitor support thread');
+
+  support
+    .command('escalate')
+    .description('Hand a visitor off to a human (creates a support ticket)')
+    .requiredOption('--name <name>', "Visitor's name")
+    .requiredOption('--email <email>', "Visitor's e-mail — also proves the ticket is theirs")
+    .requiredOption('--message <message>', 'What they need help with')
+    .option('--session <id>', 'Widget session id, so the bot transcript follows into the ticket')
+    .action(
+      async (
+        opts: { name: string; email: string; message: string; session?: string },
+        cmd: Command,
+      ) => {
+        const g = globals(cmd);
+        try {
+          const res = await createClient(g).support.escalate({
+            name: opts.name,
+            email: opts.email,
+            message: opts.message,
+            sessionId: opts.session,
+          });
+          out(
+            g.json
+              ? res
+              : pc.green('✓ Ticket created') +
+                  ` — ${res.ticketId} (${res.status})\n` +
+                  pc.dim(`  follow it: fluxchat support thread ${res.ticketId} --email ${opts.email}`),
+            g.json,
+          );
+        } catch (err) {
+          fail(err);
+        }
+      },
+    );
+
+  support
+    .command('thread')
+    .description("Read a visitor's own ticket thread")
+    .argument('<ticketId>', 'Ticket id returned by escalate')
+    .requiredOption('--email <email>', 'The e-mail the ticket was raised with')
+    .action(async (ticketId: string, opts: { email: string }, cmd: Command) => {
+      const g = globals(cmd);
+      try {
+        const res = await createClient(g).support.thread(ticketId, opts.email);
+        if (g.json) {
+          out(res, true);
+          return;
+        }
+        const who = { bot: pc.cyan('bot    '), visitor: pc.white('visitor'), agent: pc.green('agent  ') };
+        const header =
+          `${pc.bold(res.subject)} — ${res.status}` +
+          (res.agentConnected ? pc.green(`  ● ${res.agentName ?? 'agent'} is answering`) : pc.yellow('  ○ waiting for an agent'));
+        out(
+          [header, ...res.messages.map((m) => `${who[m.role]} │ ${m.content}`)].join('\n'),
+          false,
+        );
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  support
+    .command('reply')
+    .description("Post a visitor's reply into their own ticket")
+    .argument('<ticketId>', 'Ticket id')
+    .requiredOption('--email <email>', 'The e-mail the ticket was raised with')
+    .requiredOption('--message <message>', 'The reply')
+    .action(
+      async (ticketId: string, opts: { email: string; message: string }, cmd: Command) => {
+        const g = globals(cmd);
+        try {
+          await createClient(g).support.reply({
+            ticketId,
+            email: opts.email,
+            content: opts.message,
+          });
+          out(g.json ? { ok: true } : pc.green('✓ Reply sent'), g.json);
+        } catch (err) {
+          fail(err);
+        }
+      },
+    );
+
   return program;
 }
