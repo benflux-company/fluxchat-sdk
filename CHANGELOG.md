@@ -3,6 +3,21 @@
 All notable changes to `fluxchat-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-10-18
+
+### Added
+- **Human handoff that stays a conversation.** `humanHandoff` collects name / e-mail / message inline and posts to `POST /public/bot/escalate`; from then on the widget is a view onto that support ticket rather than an e-mail dead end. The composer writes into the ticket, the thread is polled every 5s, and agent replies arrive in their own bubble with the agent's name.
+- **Thread resumes across visits.** The ticket (`{id, email}`) is kept in `localStorage`, so a reload or a return visit restores the whole conversation — including the bot turns from before the handoff, which the backend copies into the ticket. A ticket that no longer exists (404) is dropped instead of trapping the visitor in a dead thread.
+- **Status strip** under the header: transmitted (amber) → *<agent> is answering* (emerald) → closed (slate, composer locked, with a "new conversation" reset).
+- New widget-side theme tokens for the agent accent (`--fcw-agent-*`, `--fcw-waiting-*`, `--fcw-closed-*`), deliberately never `--fcw-primary`, so "a person answered" reads even when an integrator sets the brand colour to green.
+
+### Changed
+- `humanHandoffSuccessMessage`'s default no longer promises an e-mail-only follow-up — the reply lands in the widget.
+- Ownership of a visitor's own ticket is the e-mail they escalated with: no account, no session, no token.
+
+### Requires
+- An API running api-chat-integration ≥ the support-thread release (`GET|POST /api/v2/public/bot/tickets/:id[/messages]`). Against an older API the handoff still creates a ticket; only the in-widget thread is unavailable.
+
 ## [0.1.5] — 2026-06-11
 
 ### Added
