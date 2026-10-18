@@ -31,6 +31,10 @@ const ICONS = {
   bolt: '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="vertical-align:-1px"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
 };
 
 interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target' | 'platformApi'>> {
@@ -41,6 +45,46 @@ interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' 
   platformApi?: WidgetOptions['platformApi'];
   autoCapture: boolean;
 }
+
+// Collected from the visitor and sent to /public/bot/escalate — no
+// FluxChat account needed, the backend finds-or-creates a minimal guest
+// identity from this.
+interface HandoffDraft {
+  name: string;
+  email: string;
+  message: string;
+}
+
+// The visitor's own ticket, kept in localStorage so the thread survives a
+// reload or a return visit — the e-mail is the only proof of ownership the
+// public thread routes accept (see SupportService.getOwnedTicket).
+interface StoredTicket {
+  id: string;
+  email: string;
+}
+
+type ThreadRole = 'bot' | 'visitor' | 'agent';
+
+interface ThreadMessage {
+  id: string;
+  content: string;
+  role: ThreadRole;
+  createdAt: string;
+}
+
+interface ThreadSnapshot {
+  ticketId: string;
+  subject: string;
+  status: string;
+  agentConnected: boolean;
+  agentName: string | null;
+  closed: boolean;
+  messages: ThreadMessage[];
+}
+
+// Fast enough to feel live, slow enough to stay inside the route's 60/min
+// throttle with a couple of tabs open.
+const THREAD_POLL_MS = 5000;
 
 // ─── Platform API auto-enrichment types ────────────────────────────────────
 
@@ -90,6 +134,11 @@ function resolve(options: WidgetOptions): Resolved {
     context: options.context,
     target: options.target,
     platformApi: options.platformApi,
+    humanHandoff: options.humanHandoff ?? true,
+    humanHandoffLabel: options.humanHandoffLabel ?? 'Parler à un humain',
+    humanHandoffSuccessMessage:
+      options.humanHandoffSuccessMessage ??
+      'Merci ! Votre demande est transmise à notre équipe. Restez ici : sa réponse apparaîtra dans cette conversation.',
   };
 }
 
@@ -125,6 +174,14 @@ export class FluxChatWidget implements WidgetInstance {
   private theme: 'light' | 'dark' = 'light';
   private platformEndpoints: EndpointInfo[] = [];
   private lastPlatformData = '';
+  private bannerEl!: HTMLDivElement;
+  // Set once the visitor has been handed off to a human: from then on the
+  // composer writes into their support ticket instead of to the bot.
+  private ticket: StoredTicket | null = null;
+  private ticketClosed = false;
+  private seenMessageIds = new Set<string>();
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private threadHydrated = false;
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
@@ -143,6 +200,7 @@ export class FluxChatWidget implements WidgetInstance {
       // eslint-disable-next-line no-console
       console.debug('[FluxChatWidget] DEV mode — requests will include X-FluxChat-Env: development');
     }
+    this.ticket = this.loadStoredTicket();
     this.injectStyles();
     this.build();
     if (this.o.mode === 'inline' || this.o.openOnLoad) this.open();
@@ -155,7 +213,13 @@ export class FluxChatWidget implements WidgetInstance {
   open(): void {
     this.isOpen = true;
     this.root.setAttribute('data-open', 'true');
-    if (this.messagesEl.childElementCount === 0 && this.o.greeting) {
+    // An open ticket takes over the panel: the greeting would read as the
+    // start of a new conversation when the visitor is mid-thread with an
+    // agent.
+    if (this.ticket) {
+      void this.syncThread();
+      this.startPolling();
+    } else if (this.messagesEl.childElementCount === 0 && this.o.greeting) {
       this.addBubble('bot', this.o.greeting);
     }
     setTimeout(() => this.input.focus(), 200);
@@ -163,6 +227,7 @@ export class FluxChatWidget implements WidgetInstance {
   close(): void {
     this.isOpen = false;
     this.root.setAttribute('data-open', 'false');
+    this.stopPolling();
   }
   toggle(): void {
     this.isOpen ? this.close() : this.open();
@@ -181,6 +246,7 @@ export class FluxChatWidget implements WidgetInstance {
     this.setTheme(this.theme === 'dark' ? 'light' : 'dark');
   }
   destroy(): void {
+    this.stopPolling();
     this.root.remove();
   }
 
@@ -217,10 +283,12 @@ export class FluxChatWidget implements WidgetInstance {
           </div>
           <div class="fcw-hbtns">
             ${this.isDevMode ? '<span class="fcw-dev-badge">DEV</span>' : ''}
+            ${this.o.humanHandoff ? `<button class="fcw-hbtn fcw-handoff" aria-label="${this.attr(this.o.humanHandoffLabel)}" title="${this.attr(this.o.humanHandoffLabel)}">${ICONS.human}</button>` : ''}
             ${this.o.themeToggle ? `<button class="fcw-hbtn fcw-theme" aria-label="Changer de thème">${this.theme === 'dark' ? ICONS.sun : ICONS.moon}</button>` : ''}
             <button class="fcw-hbtn fcw-close" aria-label="Fermer">${ICONS.close}</button>
           </div>
         </div>
+        <div class="fcw-banner" hidden></div>
         <div class="fcw-messages"></div>
         <div class="fcw-composer">
           <textarea class="fcw-input" rows="1" placeholder="${this.attr(this.o.placeholder)}"></textarea>
@@ -233,12 +301,14 @@ export class FluxChatWidget implements WidgetInstance {
 
     this.root = root;
     this.messagesEl = root.querySelector('.fcw-messages')!;
+    this.bannerEl = root.querySelector('.fcw-banner')!;
     this.input = root.querySelector('.fcw-input')!;
     this.sendBtn = root.querySelector('.fcw-send')!;
 
     root.querySelector('.fcw-launcher')?.addEventListener('click', () => this.toggle());
     root.querySelector('.fcw-close')?.addEventListener('click', () => this.close());
     root.querySelector('.fcw-theme')?.addEventListener('click', () => this.toggleTheme());
+    root.querySelector('.fcw-handoff')?.addEventListener('click', () => this.showHandoffForm());
     this.sendBtn.addEventListener('click', () => this.handleSend(this.input.value));
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -635,6 +705,14 @@ export class FluxChatWidget implements WidgetInstance {
     if (!text || this.busy) return;
     if (!this.isOpen) this.open();
 
+    // Handed off to a human: the same composer now writes into the ticket,
+    // so the visitor never has to notice that the conversation changed
+    // hands.
+    if (this.ticket) {
+      await this.sendTicketReply(text);
+      return;
+    }
+
     this.input.value = '';
     this.autosize();
     this.addBubble('user', text);
@@ -708,7 +786,342 @@ export class FluxChatWidget implements WidgetInstance {
     return data?.reply ?? '…';
   }
 
+  // ── Human handoff ───────────────────────────────────────
+  // Collects name/email/message inline (no page navigation, no account)
+  // and posts to /public/bot/escalate, which creates a real support ticket
+  // visible in the organization's dashboard.
+
+  private handoffOpen = false;
+
+  private showHandoffForm(): void {
+    if (this.handoffOpen) return; // one open form at a time
+    if (!this.isOpen) this.open();
+    // Already in a thread with the team: a second form would open a second
+    // ticket for the same conversation.
+    if (this.ticket && !this.ticketClosed) {
+      this.addBubble('bot', 'Votre demande est déjà entre les mains de notre équipe — écrivez simplement ici, la réponse arrive dans cette conversation.');
+      return;
+    }
+    this.handoffOpen = true;
+
+    const row = document.createElement('div');
+    row.className = 'fcw-row bot';
+    row.innerHTML = `
+      <div class="fcw-bubble fcw-handoff-card">
+        <p class="fcw-handoff-intro">Laissez-nous vos coordonnées. La suite se passe ici&nbsp;: la réponse de l'équipe arrive dans cette conversation.</p>
+        <input class="fcw-handoff-input" data-field="name" type="text" placeholder="Votre nom" autocomplete="name" />
+        <input class="fcw-handoff-input" data-field="email" type="email" placeholder="Votre e-mail" autocomplete="email" />
+        <textarea class="fcw-handoff-input" data-field="message" rows="2" placeholder="Votre message"></textarea>
+        <p class="fcw-handoff-error" hidden></p>
+        <div class="fcw-handoff-actions">
+          <button type="button" class="fcw-handoff-cancel">Annuler</button>
+          <button type="button" class="fcw-handoff-submit">Envoyer</button>
+        </div>
+      </div>
+    `;
+    this.messagesEl.appendChild(row);
+    this.scrollToBottom();
+
+    const nameEl = row.querySelector<HTMLInputElement>('[data-field="name"]')!;
+    const emailEl = row.querySelector<HTMLInputElement>('[data-field="email"]')!;
+    const messageEl = row.querySelector<HTMLTextAreaElement>('[data-field="message"]')!;
+    const errorEl = row.querySelector<HTMLParagraphElement>('.fcw-handoff-error')!;
+    const submitBtn = row.querySelector<HTMLButtonElement>('.fcw-handoff-submit')!;
+    const cancelBtn = row.querySelector<HTMLButtonElement>('.fcw-handoff-cancel')!;
+
+    const closeForm = () => {
+      this.handoffOpen = false;
+      row.remove();
+    };
+    cancelBtn.addEventListener('click', closeForm);
+
+    submitBtn.addEventListener('click', () => {
+      void (async () => {
+        const name = nameEl.value.trim();
+        const email = emailEl.value.trim();
+        const message = messageEl.value.trim();
+        errorEl.hidden = true;
+        if (!name || !email || !message) {
+          errorEl.textContent = 'Merci de remplir les trois champs.';
+          errorEl.hidden = false;
+          return;
+        }
+        submitBtn.disabled = true;
+        cancelBtn.disabled = true;
+        try {
+          await this.submitHandoff({ name, email, message });
+          this.handoffOpen = false;
+          row.remove();
+          this.addBubble('bot', this.o.humanHandoffSuccessMessage);
+        } catch (err) {
+          errorEl.textContent = err instanceof Error ? err.message : 'Impossible d\'envoyer la demande pour le moment.';
+          errorEl.hidden = false;
+        } finally {
+          submitBtn.disabled = false;
+          cancelBtn.disabled = false;
+        }
+      })();
+    });
+
+    nameEl.focus();
+  }
+
+  private async submitHandoff(draft: HandoffDraft): Promise<void> {
+    const res = await fetch(`${this.o.baseUrl}/public/bot/escalate`, {
+      method: 'POST',
+      headers: this.publicHeaders(),
+      body: JSON.stringify({ ...draft, sessionId: this.sessionId }),
+    });
+    const json = await res.json().catch(() => undefined);
+    if (!res.ok) {
+      throw new Error(json?.message || `HTTP ${res.status}`);
+    }
+    const ticketId: string | undefined = (json?.data ?? json)?.ticketId;
+    if (!ticketId) {
+      // A ticket was created but we cannot address it — say so rather than
+      // leaving the visitor in a thread that silently talks to nobody.
+      throw new Error("Demande enregistrée, mais le suivi n'a pas pu être ouvert.");
+    }
+    this.enterTicketMode({ id: ticketId, email: draft.email }, draft.message);
+  }
+
+  // ── Support thread (post-handoff) ───────────────────────
+  // The visitor has no account and no session, so their e-mail is the key to
+  // their own ticket and the thread is polled rather than pushed. One
+  // continuous conversation either way — never a "we'll e-mail you" dead end.
+
+  private ticketStorageKey(): string {
+    return `fcw_ticket_${this.o.apiKey.slice(-8)}`;
+  }
+
+  private loadStoredTicket(): StoredTicket | null {
+    try {
+      const raw = localStorage.getItem(this.ticketStorageKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as StoredTicket;
+      return parsed?.id && parsed?.email ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private storeTicket(ticket: StoredTicket | null): void {
+    try {
+      if (ticket) {
+        localStorage.setItem(this.ticketStorageKey(), JSON.stringify(ticket));
+      } else {
+        localStorage.removeItem(this.ticketStorageKey());
+      }
+    } catch { /* private browsing — the thread then lives for this page only */ }
+  }
+
+  private enterTicketMode(ticket: StoredTicket, firstMessage: string): void {
+    this.ticket = ticket;
+    this.ticketClosed = false;
+    this.storeTicket(ticket);
+    // What they just typed in the form never appeared as a bubble.
+    this.addBubble('user', firstMessage);
+    this.renderBanner({ waiting: true });
+    this.input.placeholder = 'Répondre à l\'équipe…';
+    // Seed only: the server thread already holds the bot transcript that is
+    // on screen, so record those ids without re-rendering them. From here on
+    // only genuinely new messages (the agent's) get appended.
+    void this.syncThread({ seedOnly: true }).then(() => this.startPolling());
+  }
+
+  private leaveTicketMode(): void {
+    this.stopPolling();
+    this.ticket = null;
+    this.ticketClosed = false;
+    this.threadHydrated = false;
+    this.seenMessageIds.clear();
+    this.storeTicket(null);
+    this.conversationId = '';
+    this.messagesEl.innerHTML = '';
+    this.bannerEl.hidden = true;
+    this.input.placeholder = this.o.placeholder;
+    this.input.disabled = false;
+    this.sendBtn.disabled = false;
+    if (this.o.greeting) this.addBubble('bot', this.o.greeting);
+  }
+
+  private startPolling(): void {
+    if (this.pollTimer || !this.ticket || this.ticketClosed) return;
+    this.pollTimer = setInterval(() => {
+      if (!this.isOpen || !this.ticket || this.ticketClosed) {
+        this.stopPolling();
+        return;
+      }
+      void this.syncThread();
+    }, THREAD_POLL_MS);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private async syncThread(opts?: { seedOnly?: boolean }): Promise<void> {
+    const ticket = this.ticket;
+    if (!ticket) return;
+
+    let snapshot: ThreadSnapshot;
+    try {
+      const url = `${this.o.baseUrl}/public/bot/tickets/${encodeURIComponent(ticket.id)}?email=${encodeURIComponent(ticket.email)}`;
+      const res = await fetch(url, { headers: this.publicHeaders() });
+      if (res.status === 404) {
+        // The ticket is gone (or the stored e-mail no longer owns it) —
+        // a stale localStorage entry must not trap the visitor in a dead
+        // thread.
+        this.leaveTicketMode();
+        return;
+      }
+      if (!res.ok) return; // transient: the next poll retries
+      const json = await res.json().catch(() => undefined);
+      snapshot = (json?.data ?? json) as ThreadSnapshot;
+      if (!snapshot?.messages) return;
+    } catch {
+      return; // offline — keep what is on screen and retry
+    }
+
+    if (opts?.seedOnly) {
+      for (const m of snapshot.messages) this.seenMessageIds.add(m.id);
+      this.threadHydrated = true;
+      this.renderBanner(this.bannerStateFor(snapshot));
+      return;
+    }
+
+    for (const m of snapshot.messages) {
+      if (this.seenMessageIds.has(m.id)) continue;
+      this.seenMessageIds.add(m.id);
+      this.addThreadBubble(m, snapshot.agentName);
+    }
+    this.threadHydrated = true;
+    this.renderBanner(this.bannerStateFor(snapshot));
+
+    if (snapshot.closed) {
+      this.ticketClosed = true;
+      this.stopPolling();
+    }
+  }
+
+  private async sendTicketReply(text: string): Promise<void> {
+    const ticket = this.ticket;
+    if (!ticket || this.ticketClosed) return;
+
+    this.input.value = '';
+    this.autosize();
+    this.setBusy(true);
+    const optimistic = this.addBubble('user', text);
+
+    try {
+      const res = await fetch(
+        `${this.o.baseUrl}/public/bot/tickets/${encodeURIComponent(ticket.id)}/messages`,
+        {
+          method: 'POST',
+          headers: this.publicHeaders(),
+          body: JSON.stringify({ email: ticket.email, content: text }),
+        },
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => undefined);
+        throw new Error(json?.message || `HTTP ${res.status}`);
+      }
+      // The reply we just posted comes back on the next poll; mark it seen
+      // via a seeding sync so it is not rendered twice.
+      await this.syncThread({ seedOnly: true });
+      this.startPolling();
+    } catch (err) {
+      optimistic.remove();
+      this.input.value = text;
+      this.autosize();
+      this.addBubble('bot', "⚠️ Votre message n'a pas pu être envoyé. Réessayez dans un instant.");
+      // eslint-disable-next-line no-console
+      console.error('[FluxChatWidget]', err);
+    } finally {
+      this.setBusy(false);
+      this.input.focus();
+    }
+  }
+
+  private bannerStateFor(
+    snapshot: ThreadSnapshot,
+  ): { waiting?: boolean; agent?: string | null; closed?: boolean } {
+    if (snapshot.closed) return { closed: true };
+    if (snapshot.agentConnected) return { agent: snapshot.agentName };
+    return { waiting: true };
+  }
+
+  private renderBanner(state: {
+    waiting?: boolean;
+    agent?: string | null;
+    closed?: boolean;
+  }): void {
+    this.bannerEl.hidden = false;
+
+    if (state.closed) {
+      this.bannerEl.dataset.tone = 'closed';
+      this.bannerEl.innerHTML = `${ICONS.check}<span>Cette demande est clôturée.</span><button type="button" class="fcw-banner-action">Nouvelle conversation</button>`;
+      this.bannerEl
+        .querySelector('.fcw-banner-action')
+        ?.addEventListener('click', () => this.leaveTicketMode());
+      this.input.disabled = true;
+      this.sendBtn.disabled = true;
+      this.input.placeholder = 'Demande clôturée';
+      return;
+    }
+
+    this.input.disabled = false;
+    this.sendBtn.disabled = false;
+
+    if (state.agent !== undefined) {
+      this.bannerEl.dataset.tone = 'agent';
+      const who = state.agent ? this.esc(state.agent) : 'Un membre de l\'équipe';
+      this.bannerEl.innerHTML = `${ICONS.shield}<span>${who} vous répond dans cette conversation.</span>`;
+      return;
+    }
+
+    this.bannerEl.dataset.tone = 'waiting';
+    this.bannerEl.innerHTML = `${ICONS.clock}<span>Demande transmise à notre équipe. Vous pouvez continuer à écrire ici.</span>`;
+  }
+
+  private publicHeaders(): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      'X-API-Key': this.o.apiKey,
+      'X-FluxChat-Env': this.isDevMode ? 'development' : 'production',
+    };
+  }
+
   // ── DOM helpers ─────────────────────────────────────────
+  // The three thread roles rendered the way the FluxChat dashboard and
+  // benflux-admin-v2 render them: the visitor on the right, the bot neutral
+  // on the left, a human agent on the left but visibly a person.
+  private addThreadBubble(message: ThreadMessage, agentName: string | null): void {
+    if (message.role === 'agent') {
+      this.addAgentBubble(message.content, agentName);
+      return;
+    }
+    this.addBubble(message.role === 'visitor' ? 'user' : 'bot', message.content);
+  }
+
+  private addAgentBubble(text: string, agentName: string | null): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = 'fcw-row agent';
+    row.innerHTML = `
+      <div class="fcw-agent-wrap">
+        <span class="fcw-agent-name">${ICONS.shield}${this.esc(agentName || 'Équipe support')}</span>
+        <div class="fcw-bubble fcw-agent-bubble"></div>
+      </div>
+    `;
+    row.querySelector('.fcw-agent-bubble')!.innerHTML = renderMarkup(text);
+    this.messagesEl.appendChild(row);
+    this.scrollToBottom();
+    return row;
+  }
+
   private addBubble(role: 'user' | 'bot', text: string): HTMLDivElement {
     const row = document.createElement('div');
     row.className = `fcw-row ${role}`;

@@ -16,6 +16,16 @@ export function widgetCss(): string {
   --fcw-border: #e6e8eb;
   --fcw-bot-bubble: #f1f3f5;
   --fcw-radius: 18px;
+  /* Human-agent accent: the one colour in the widget that is never the
+     brand colour, so "a person answered" reads at a glance even when an
+     integrator sets --fcw-primary to green. */
+  --fcw-agent-bg: #ecfdf5;
+  --fcw-agent-border: #a7f3d0;
+  --fcw-agent-text: #047857;
+  --fcw-waiting-bg: #fffbeb;
+  --fcw-waiting-text: #b45309;
+  --fcw-closed-bg: #f1f5f9;
+  --fcw-closed-text: #475569;
   position: fixed; bottom: 24px; z-index: 2147483000;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--fcw-text);
@@ -27,6 +37,13 @@ export function widgetCss(): string {
   --fcw-muted: #9aa4af;
   --fcw-border: #2a2e33;
   --fcw-bot-bubble: #23272c;
+  --fcw-agent-bg: rgba(16,185,129,.14);
+  --fcw-agent-border: rgba(16,185,129,.35);
+  --fcw-agent-text: #6ee7b7;
+  --fcw-waiting-bg: rgba(245,158,11,.14);
+  --fcw-waiting-text: #fcd34d;
+  --fcw-closed-bg: rgba(148,163,184,.14);
+  --fcw-closed-text: #cbd5e1;
 }
 .fcw-root[data-position="right"] { right: 24px; }
 .fcw-root[data-position="left"] { left: 24px; }
@@ -109,6 +126,56 @@ export function widgetCss(): string {
 .fcw-row.user .fcw-bubble { background: var(--fcw-primary); color: var(--fcw-primary-contrast); border-bottom-right-radius: 6px; }
 .fcw-bubble a { color: inherit; text-decoration: underline; }
 .fcw-bubble strong { font-weight: 700; }
+
+/* Support-thread status strip (post-handoff) */
+.fcw-banner {
+  display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+  font-size: 12px; line-height: 1.35; border-bottom: 1px solid var(--fcw-border);
+}
+.fcw-banner[hidden] { display: none; }
+.fcw-banner svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.fcw-banner span { flex: 1; min-width: 0; }
+.fcw-banner[data-tone="waiting"] { background: var(--fcw-waiting-bg); color: var(--fcw-waiting-text); }
+.fcw-banner[data-tone="agent"]   { background: var(--fcw-agent-bg);   color: var(--fcw-agent-text); }
+.fcw-banner[data-tone="closed"]  { background: var(--fcw-closed-bg);  color: var(--fcw-closed-text); }
+.fcw-banner-action {
+  flex: 0 0 auto; border: 1px solid currentColor; background: transparent; color: inherit;
+  border-radius: 8px; padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.fcw-banner-action:hover { background: rgba(0,0,0,.05); }
+
+/* Human agent message */
+.fcw-row.agent { justify-content: flex-start; }
+.fcw-agent-wrap { display: flex; flex-direction: column; gap: 3px; max-width: 86%; }
+.fcw-agent-name {
+  display: inline-flex; align-items: center; gap: 4px; padding-left: 2px;
+  font-size: 11px; font-weight: 600; color: var(--fcw-agent-text);
+}
+.fcw-agent-name svg { width: 11px; height: 11px; }
+.fcw-agent-bubble {
+  max-width: 100%;
+  background: var(--fcw-agent-bg); color: var(--fcw-text);
+  border: 1px solid var(--fcw-agent-border); border-bottom-left-radius: 6px;
+}
+
+/* Human handoff */
+.fcw-handoff-card { display: flex; flex-direction: column; gap: 8px; max-width: 92%; width: 260px; }
+.fcw-handoff-intro { margin: 0 0 2px; font-size: 13px; line-height: 1.4; }
+.fcw-handoff-input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--fcw-border); border-radius: 10px;
+  padding: 8px 10px; font: inherit; font-size: 13px; background: var(--fcw-bg); color: var(--fcw-text); outline: none; resize: none;
+}
+.fcw-handoff-input:focus { border-color: var(--fcw-primary); }
+.fcw-handoff-error { margin: 0; font-size: 12px; color: #dc2626; }
+.fcw-handoff-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.fcw-handoff-cancel, .fcw-handoff-submit {
+  border: none; border-radius: 10px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.fcw-handoff-cancel { background: transparent; color: var(--fcw-muted); }
+.fcw-handoff-cancel:hover { color: var(--fcw-text); }
+.fcw-handoff-submit { background: var(--fcw-primary); color: var(--fcw-primary-contrast); }
+.fcw-handoff-submit:hover { opacity: .92; }
+.fcw-handoff-submit:disabled, .fcw-handoff-cancel:disabled { opacity: .5; cursor: not-allowed; }
 
 /* Typing */
 .fcw-typing { display: inline-flex; gap: 4px; align-items: center; padding: 12px 14px; }
