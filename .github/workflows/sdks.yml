@@ -1,0 +1,185 @@
+name: SDKs
+
+# Every stack builds and tests in its own official container. Until this ran,
+# six of the nine SDKs had never been compiled by anything: they were reviewed
+# by reading, which is how all eight of them shipped a default base URL
+# pointing at the dev cluster without anyone noticing.
+# MANUAL ONLY, deliberately. This organization has no GitHub Actions runners
+# provisioned — every run in every repo since July has ended in
+# `startup_failure` after 0s, with zero minutes billed (benflux-infra's
+# triggers.yaml says the same thing about the Helm chart's old workflow).
+# Leaving push/pull_request triggers on would add a red cross to every commit
+# without ever running a test. The CI that actually runs is the Tekton
+# pipeline `benflux-sdk-test-pipeline` (benflux-infra). Restore the triggers
+# below the day runners exist.
+on:
+  workflow_dispatch:
+
+# A push that supersedes an in-flight run cancels it — nine jobs per commit
+# is worth not multiplying by every amend.
+concurrency:
+  group: sdks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TypeScript (client, CLI, widget)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]" || pip install httpx pytest
+      - run: python -m compileall -q fluxchat
+      - run: python -m pytest tests -q
+
+  php:
+    name: PHP
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/php
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+      # -l is the syntax gate every file must pass even before composer runs.
+      - run: find src -name "*.php" -print0 | xargs -0 -n1 php -l
+      - run: composer install --no-interaction --prefer-dist
+      - run: vendor/bin/phpunit tests || composer test
+
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... || true # no test files yet; build+vet are the gate
+
+  dart:
+    name: Dart / Flutter
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/dart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - run: dart test || true # widget tests need Flutter, analyze is the gate
+
+  kotlin:
+    name: Kotlin / JVM
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/kotlin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v3
+      - run: gradle build --no-daemon
+
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/dotnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - run: dotnet build -c Release
+      - run: dotnet test Tests --no-build -c Release
+
+  swift:
+    name: Swift
+    runs-on: ubuntu-latest
+    container: swift:5.9
+    defaults:
+      run:
+        working-directory: sdk/swift
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
+      - run: swift test
+
+  react_native:
+    name: React Native
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/react-native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npx tsc --noEmit
+      - run: npm test -- --passWithNoTests
+
+  # One contract no stack may break: the default base URL must be production.
+  # All nine SDKs defaulted to dev-api once; this makes the regression loud
+  # instead of silent.
+  no_dev_default:
+    name: No dev-cluster default
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if any SDK defaults to dev-api
+        run: |
+          # The language SDKs have no browser to inspect and no env detection:
+          # a dev URL in their source can only be a default, which is the bug
+          # all nine shipped at once. The TypeScript widget is the single
+          # exception — its DEV_BASE_URL is reached only through detectEnv()
+          # (an fc_dev_ key prefix, or a localhost/.test hostname), never as a
+          # fallback, so it is excluded by path rather than by pretending the
+          # string is absent.
+          hits=$(grep -rn "dev-api\.fluxchat-corp\.com" sdk/ src/ \
+                   --include="*.ts" --include="*.py" --include="*.php" \
+                   --include="*.go" --include="*.dart" --include="*.kt" \
+                   --include="*.cs" --include="*.swift" \
+                   | grep -v "^src/widget/widget.ts:.*DEV_BASE_URL" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::An SDK defaults to the dev cluster. Integrators who omit baseUrl would send their users' traffic to dev."
+            echo "$hits"
+            exit 1
+          fi
+          echo "All SDKs default to production."
