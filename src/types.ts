@@ -53,6 +53,61 @@ export interface AskOptions {
   sessionId?: string;
 }
 
+// ─── Human handoff & support thread ───────────────────────────────────────
+
+/** What a visitor submits when they ask for a human. */
+export interface EscalateOptions {
+  /** Visitor's name, as they typed it. */
+  name: string;
+  /** Visitor's e-mail — also what proves the resulting ticket is theirs. */
+  email: string;
+  /** What they want help with. Becomes the ticket's first message. */
+  message: string;
+  /**
+   * The same opaque session id you pass to `ask()`. When present, the bot
+   * conversation so far is copied into the ticket so the agent has context.
+   */
+  sessionId?: string;
+}
+
+export interface EscalateResponse {
+  /** Id of the created ticket — keep it, with the e-mail, to follow the thread. */
+  ticketId: string;
+  /** Ticket status at creation (`open`, or higher on a priority-support plan). */
+  status: string;
+}
+
+/** Who said a line in a ticket thread. */
+export type TicketMessageRole = 'bot' | 'visitor' | 'agent';
+
+export interface TicketMessage {
+  id: string;
+  content: string;
+  role: TicketMessageRole;
+  createdAt: string;
+}
+
+export interface TicketThread {
+  ticketId: string;
+  subject: string;
+  /** `open` | `in_progress` | `resolved` | `closed`. */
+  status: string;
+  /** True once a human has actually written — not merely been assigned. */
+  agentConnected: boolean;
+  /** Display name of the assigned agent, when there is one. */
+  agentName: string | null;
+  /** `resolved` or `closed`: the visitor can read but no longer write. */
+  closed: boolean;
+  messages: TicketMessage[];
+}
+
+export interface TicketReplyOptions {
+  ticketId: string;
+  /** The e-mail the ticket was raised with. */
+  email: string;
+  content: string;
+}
+
 export interface AskResponse {
   /** The assistant's reply (markdown). */
   reply: string;

@@ -25,6 +25,7 @@ Drop a beautiful AI assistant into any product in minutes — with per-request c
 - **Per-request context** — inject real-time data (cart, user, page) treated as a *priority source of truth*, above the knowledge base.
 - **Persona** — set the assistant name, tone, and style rules per organization.
 - **Knowledge base** — create, update and delete articles with a scoped API key.
+- **Human handoff** — hand a visitor to a real agent and keep the conversation in the same thread: ticket, polling, agent replies. No account, no "we'll e-mail you".
 - **Embeddable widget** — a polished, fully customizable chat bubble for any website.
 - **CLI** — talk to your bot and manage knowledge from the terminal.
 - **Universal** — ESM + CJS + TypeScript types, zero-config.
@@ -366,6 +367,54 @@ await fluxchat.config.update({
 const cfg = await fluxchat.config.get();
 ```
 
+### Human handoff & support thread
+
+When the bot can't help, hand the visitor to a human. This creates a real
+support ticket in the organization's dashboard — and, unlike a contact form,
+the conversation **stays open in the same thread**: the visitor polls it, the
+agent answers into it.
+
+```ts
+// 1. Hand off. Pass the same sessionId you use with ask() and everything the
+//    bot already said is copied into the ticket, so the agent has context.
+const { ticketId } = await fluxchat.support.escalate({
+  name: 'Jordan Mbeki',
+  email: 'jordan@example.com',
+  message: 'Mon virement est bloqué depuis hier.',
+  sessionId: mySessionId,
+});
+
+// 2. Follow the thread. Keep { ticketId, email } — the e-mail is what proves
+//    the ticket is theirs (no account, no token).
+const thread = await fluxchat.support.thread(ticketId, 'jordan@example.com');
+thread.messages.forEach((m) => console.log(m.role, m.content)); // bot | visitor | agent
+if (thread.agentConnected) console.log(`${thread.agentName} is answering`);
+
+// 3. Let them reply into it.
+await fluxchat.support.reply({
+  ticketId,
+  email: 'jordan@example.com',
+  content: 'La référence est 4821.',
+});
+```
+
+Notes worth knowing:
+
+- **Ownership is the e-mail.** A wrong e-mail and a non-existent ticket both
+  return **404**, deliberately — a guessed ticket id reveals nothing. The
+  lookup is also scoped to the organization behind your API key.
+- **Poll, don't push.** There is no socket on the public surface. 5s is the
+  cadence the official widget uses and what the route's rate limit is sized
+  for (60 reads/min, 30 replies/min, 5 escalations/min).
+- **Statuses**: `open` → `in_progress` → `resolved` → `closed`. A reply to a
+  `resolved` ticket reopens it; a `closed` one refuses the write (**403**)
+  rather than swallowing a message nobody will read.
+- Requires the organization's plan to include `supportTickets` (**403**
+  otherwise), and an API running api-chat-integration ≥ the support-thread
+  release.
+
+The embeddable widget does all of this for you — see [`humanHandoff`](#embed-options).
+
 ### Errors
 
 Every failure is a typed subclass of `FluxChatError`:
@@ -403,12 +452,21 @@ fluxchat [global options] <command>
 | `fluxchat kb delete <id>`              | Delete an article *(`bot:write`)*.           |
 | `fluxchat config get`                  | Show the persona config.                     |
 | `fluxchat config set [...]`            | Update the persona *(needs `--token`)*.      |
+| `fluxchat support escalate [...]`      | Hand a visitor off to a human.               |
+| `fluxchat support thread <id> --email` | Read that visitor's ticket thread.           |
+| `fluxchat support reply <id> [...]`    | Post the visitor's reply into the ticket.    |
 
 ```bash
 # Examples
 fluxchat ask "Quels sont vos tarifs ?" --json
 fluxchat kb create --title "FAQ livraison" --content "Livraison sous 48h." --keywords "livraison,délai"
 fluxchat config set --name "Léa" --tone "amical" --token "$JWT"
+
+# Human handoff, end to end
+fluxchat support escalate --name "Jordan" --email jordan@example.com \
+  --message "Mon virement est bloqué" --session "$SESSION_ID"
+fluxchat support thread t_abc123 --email jordan@example.com
+fluxchat support reply t_abc123 --email jordan@example.com --message "La référence est 4821"
 ```
 
 ---

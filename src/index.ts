@@ -16,4 +16,10 @@ export type {
   CreateKnowledgeInput,
   UpdateKnowledgeInput,
   BotConfig,
+  EscalateOptions,
+  EscalateResponse,
+  TicketThread,
+  TicketMessage,
+  TicketMessageRole,
+  TicketReplyOptions,
 } from './types.js';

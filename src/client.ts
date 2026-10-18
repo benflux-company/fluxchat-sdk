@@ -2,6 +2,7 @@ import { HttpClient } from './http.js';
 import { BotResource } from './resources/bot.js';
 import { KnowledgeResource } from './resources/knowledge.js';
 import { ConfigResource } from './resources/config.js';
+import { SupportResource } from './resources/support.js';
 import type {
   AskOptions,
   AskResponse,
@@ -29,6 +30,11 @@ export class FluxChat {
   readonly knowledge: KnowledgeResource;
   /** Per-org persona configuration (requires admin auth). */
   readonly config: ConfigResource;
+  /**
+   * Human handoff and the visitor's own support thread. Requires the
+   * organization's plan to include `supportTickets`.
+   */
+  readonly support: SupportResource;
 
   private readonly bot: BotResource;
 
@@ -37,6 +43,7 @@ export class FluxChat {
     this.bot = new BotResource(http);
     this.knowledge = new KnowledgeResource(http, options.organizationId);
     this.config = new ConfigResource(http, options.organizationId);
+    this.support = new SupportResource(http);
   }
 
   /**

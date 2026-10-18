@@ -49,7 +49,23 @@ describe('buildProgram', () => {
   it('registers the expected top-level commands', () => {
     const program = buildProgram();
     const names = program.commands.map((c) => c.name()).sort();
-    expect(names).toEqual(['ask', 'config', 'kb', 'test']);
+    expect(names).toEqual(['ask', 'config', 'kb', 'support', 'test']);
+  });
+
+  it('exposes support subcommands', () => {
+    const program = buildProgram();
+    const support = program.commands.find((c) => c.name() === 'support')!;
+    expect(support.commands.map((c) => c.name()).sort()).toEqual(['escalate', 'reply', 'thread']);
+  });
+
+  it('requires the e-mail that proves the ticket is the visitor\'s', () => {
+    const program = buildProgram();
+    const support = program.commands.find((c) => c.name() === 'support')!;
+    for (const name of ['thread', 'reply']) {
+      const cmd = support.commands.find((c) => c.name() === name)!;
+      const email = cmd.options.find((o) => o.long === '--email')!;
+      expect(email.required || email.mandatory).toBe(true);
+    }
   });
 
   it('exposes kb subcommands', () => {

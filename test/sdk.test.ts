@@ -102,3 +102,95 @@ describe('error mapping', () => {
     await expect(client.knowledge.create({ title: 'T', content: 'C' }, ORG)).rejects.toBeInstanceOf(FluxChatApiError);
   });
 });
+
+describe('support — human handoff and the visitor thread', () => {
+  const thread = {
+    ticketId: 't1',
+    subject: 'Virement bloqué',
+    status: 'in_progress',
+    agentConnected: true,
+    agentName: 'Awa',
+    closed: false,
+    messages: [
+      { id: 'm1', content: 'Bonjour !', role: 'bot', createdAt: '2026-10-18T09:00:00Z' },
+      { id: 'm2', content: 'Mon virement est bloqué', role: 'visitor', createdAt: '2026-10-18T09:01:00Z' },
+      { id: 'm3', content: 'Je regarde.', role: 'agent', createdAt: '2026-10-18T09:05:00Z' },
+    ],
+  };
+
+  it('escalates with the session so the bot transcript follows into the ticket', async () => {
+    const { fn, calls } = mockFetch({
+      success: true,
+      data: { ticketId: 't1', status: 'open' },
+      timestamp: 'now',
+    });
+    const client = new FluxChat({ apiKey: 'secret', baseUrl: 'https://api.test/api/v2', fetch: fn });
+
+    const res = await client.support.escalate({
+      name: 'Jordan',
+      email: 'jordan@example.com',
+      message: 'Je veux parler à quelqu\'un',
+      sessionId: 'sess-1',
+    });
+
+    expect(res).toEqual({ ticketId: 't1', status: 'open' });
+    expect(calls[0]!.url).toBe('https://api.test/api/v2/public/bot/escalate');
+    expect(calls[0]!.options.method).toBe('POST');
+    expect(JSON.parse(calls[0]!.options.body)).toMatchObject({
+      name: 'Jordan',
+      email: 'jordan@example.com',
+      sessionId: 'sess-1',
+    });
+  });
+
+  it('reads the thread with the e-mail as proof of ownership, url-encoded', async () => {
+    const { fn, calls } = mockFetch({ success: true, data: thread, timestamp: 'now' });
+    const client = new FluxChat({ apiKey: 'secret', baseUrl: 'https://api.test/api/v2', fetch: fn });
+
+    const res = await client.support.thread('t1', 'jordan+tag@example.com');
+
+    expect(res.messages.map((m) => m.role)).toEqual(['bot', 'visitor', 'agent']);
+    expect(res.agentName).toBe('Awa');
+    expect(calls[0]!.options.method).toBe('GET');
+    // The '+' must survive as %2B, or the API looks up a different address.
+    expect(calls[0]!.url).toBe(
+      'https://api.test/api/v2/public/bot/tickets/t1?email=jordan%2Btag%40example.com',
+    );
+  });
+
+  it('posts a visitor reply into their own ticket', async () => {
+    const { fn, calls } = mockFetch({ success: true, data: { ok: true }, timestamp: 'now' });
+    const client = new FluxChat({ apiKey: 'secret', baseUrl: 'https://api.test/api/v2', fetch: fn });
+
+    await client.support.reply({
+      ticketId: 't1',
+      email: 'jordan@example.com',
+      content: 'La référence est 4821',
+    });
+
+    expect(calls[0]!.url).toBe('https://api.test/api/v2/public/bot/tickets/t1/messages');
+    expect(JSON.parse(calls[0]!.options.body)).toEqual({
+      email: 'jordan@example.com',
+      content: 'La référence est 4821',
+    });
+  });
+
+  it('surfaces the deliberate 404 when the e-mail does not own the ticket', async () => {
+    const { fn } = mockFetch({ statusCode: 404, message: 'Ticket not found' }, { ok: false, status: 404 });
+    const client = new FluxChat({ apiKey: 'secret', fetch: fn });
+
+    await expect(client.support.thread('t1', 'someone@else.com')).rejects.toMatchObject({
+      name: 'FluxChatApiError',
+      status: 404,
+    });
+  });
+
+  it('surfaces the 403 on a closed ticket instead of swallowing the message', async () => {
+    const { fn } = mockFetch({ statusCode: 403, message: 'This ticket is closed' }, { ok: false, status: 403 });
+    const client = new FluxChat({ apiKey: 'secret', fetch: fn });
+
+    await expect(
+      client.support.reply({ ticketId: 't1', email: 'jordan@example.com', content: 'hello?' }),
+    ).rejects.toMatchObject({ name: 'FluxChatApiError', status: 403 });
+  });
+});
