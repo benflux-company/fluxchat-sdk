@@ -110,6 +110,25 @@ export function widgetCss(): string {
 .fcw-bubble a { color: inherit; text-decoration: underline; }
 .fcw-bubble strong { font-weight: 700; }
 
+/* Human handoff */
+.fcw-handoff-card { display: flex; flex-direction: column; gap: 8px; max-width: 92%; width: 260px; }
+.fcw-handoff-intro { margin: 0 0 2px; font-size: 13px; line-height: 1.4; }
+.fcw-handoff-input {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--fcw-border); border-radius: 10px;
+  padding: 8px 10px; font: inherit; font-size: 13px; background: var(--fcw-bg); color: var(--fcw-text); outline: none; resize: none;
+}
+.fcw-handoff-input:focus { border-color: var(--fcw-primary); }
+.fcw-handoff-error { margin: 0; font-size: 12px; color: #dc2626; }
+.fcw-handoff-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.fcw-handoff-cancel, .fcw-handoff-submit {
+  border: none; border-radius: 10px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.fcw-handoff-cancel { background: transparent; color: var(--fcw-muted); }
+.fcw-handoff-cancel:hover { color: var(--fcw-text); }
+.fcw-handoff-submit { background: var(--fcw-primary); color: var(--fcw-primary-contrast); }
+.fcw-handoff-submit:hover { opacity: .92; }
+.fcw-handoff-submit:disabled, .fcw-handoff-cancel:disabled { opacity: .5; cursor: not-allowed; }
+
 /* Typing */
 .fcw-typing { display: inline-flex; gap: 4px; align-items: center; padding: 12px 14px; }
 .fcw-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--fcw-muted); opacity: .6; animation: fcw-bounce 1.2s infinite ease-in-out; }

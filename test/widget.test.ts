@@ -145,4 +145,71 @@ describe('FluxChatWidget', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('human handoff: button opens a form, submit posts to /public/bot/escalate', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ success: true, data: { ticketId: 't1', status: 'open' } }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    new FluxChatWidget({ apiKey: 'secret', baseUrl: 'https://api.test/api/v1', humanHandoffSuccessMessage: 'Merci !' });
+    (document.querySelector('.fcw-handoff') as HTMLButtonElement).click();
+
+    const card = document.querySelector('.fcw-handoff-card') as HTMLElement;
+    expect(card).not.toBeNull();
+    (card.querySelector('[data-field="name"]') as HTMLInputElement).value = 'Jordan';
+    (card.querySelector('[data-field="email"]') as HTMLInputElement).value = 'jordan@example.com';
+    (card.querySelector('[data-field="message"]') as HTMLTextAreaElement).value = "J'ai besoin d'aide";
+    (card.querySelector('.fcw-handoff-submit') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.test/api/v1/public/bot/escalate',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      name: 'Jordan',
+      email: 'jordan@example.com',
+      message: "J'ai besoin d'aide",
+    });
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('.fcw-handoff-card')).toBeNull();
+      const bot = document.querySelectorAll('.fcw-row.bot .fcw-bubble');
+      expect(bot[bot.length - 1]?.textContent).toContain('Merci !');
+    });
+  });
+
+  it('human handoff: shows the backend error instead of a silent failure', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ message: 'Support tickets are not included in your plan' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    new FluxChatWidget({ apiKey: 'secret', baseUrl: 'https://api.test/api/v1' });
+    (document.querySelector('.fcw-handoff') as HTMLButtonElement).click();
+    const card = document.querySelector('.fcw-handoff-card') as HTMLElement;
+    (card.querySelector('[data-field="name"]') as HTMLInputElement).value = 'Jordan';
+    (card.querySelector('[data-field="email"]') as HTMLInputElement).value = 'jordan@example.com';
+    (card.querySelector('[data-field="message"]') as HTMLTextAreaElement).value = 'Aide';
+    (card.querySelector('.fcw-handoff-submit') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      const error = card.querySelector('.fcw-handoff-error') as HTMLElement;
+      expect(error.hidden).toBe(false);
+      expect(error.textContent).toContain('Support tickets are not included in your plan');
+    });
+    // Form stays open on error — nothing was silently lost.
+    expect(document.querySelector('.fcw-handoff-card')).not.toBeNull();
+  });
+
+  it('human handoff: can be disabled', () => {
+    new FluxChatWidget({ apiKey: 'k', humanHandoff: false });
+    expect(document.querySelector('.fcw-handoff')).toBeNull();
+  });
 });

@@ -31,6 +31,7 @@ const ICONS = {
   bolt: '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="vertical-align:-1px"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  human: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
 };
 
 interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' | 'context' | 'target' | 'platformApi'>> {
@@ -40,6 +41,15 @@ interface Resolved extends Required<Omit<WidgetOptions, 'avatarUrl' | 'logoUrl' 
   target?: string | HTMLElement;
   platformApi?: WidgetOptions['platformApi'];
   autoCapture: boolean;
+}
+
+// Collected from the visitor and sent to /public/bot/escalate — no
+// FluxChat account needed, the backend finds-or-creates a minimal guest
+// identity from this.
+interface HandoffDraft {
+  name: string;
+  email: string;
+  message: string;
 }
 
 // ─── Platform API auto-enrichment types ────────────────────────────────────
@@ -90,6 +100,11 @@ function resolve(options: WidgetOptions): Resolved {
     context: options.context,
     target: options.target,
     platformApi: options.platformApi,
+    humanHandoff: options.humanHandoff ?? true,
+    humanHandoffLabel: options.humanHandoffLabel ?? 'Parler à un humain',
+    humanHandoffSuccessMessage:
+      options.humanHandoffSuccessMessage ??
+      'Merci ! Votre demande a bien été transmise à notre équipe, qui vous recontactera par e-mail sous peu.',
   };
 }
 
@@ -217,6 +232,7 @@ export class FluxChatWidget implements WidgetInstance {
           </div>
           <div class="fcw-hbtns">
             ${this.isDevMode ? '<span class="fcw-dev-badge">DEV</span>' : ''}
+            ${this.o.humanHandoff ? `<button class="fcw-hbtn fcw-handoff" aria-label="${this.attr(this.o.humanHandoffLabel)}" title="${this.attr(this.o.humanHandoffLabel)}">${ICONS.human}</button>` : ''}
             ${this.o.themeToggle ? `<button class="fcw-hbtn fcw-theme" aria-label="Changer de thème">${this.theme === 'dark' ? ICONS.sun : ICONS.moon}</button>` : ''}
             <button class="fcw-hbtn fcw-close" aria-label="Fermer">${ICONS.close}</button>
           </div>
@@ -239,6 +255,7 @@ export class FluxChatWidget implements WidgetInstance {
     root.querySelector('.fcw-launcher')?.addEventListener('click', () => this.toggle());
     root.querySelector('.fcw-close')?.addEventListener('click', () => this.close());
     root.querySelector('.fcw-theme')?.addEventListener('click', () => this.toggleTheme());
+    root.querySelector('.fcw-handoff')?.addEventListener('click', () => this.showHandoffForm());
     this.sendBtn.addEventListener('click', () => this.handleSend(this.input.value));
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -706,6 +723,97 @@ export class FluxChatWidget implements WidgetInstance {
     const data = json?.data ?? json;
     if (data?.conversationId) this.conversationId = data.conversationId;
     return data?.reply ?? '…';
+  }
+
+  // ── Human handoff ───────────────────────────────────────
+  // Collects name/email/message inline (no page navigation, no account)
+  // and posts to /public/bot/escalate, which creates a real support ticket
+  // visible in the organization's dashboard.
+
+  private handoffOpen = false;
+
+  private showHandoffForm(): void {
+    if (this.handoffOpen) return; // one open form at a time
+    this.handoffOpen = true;
+    if (!this.isOpen) this.open();
+
+    const row = document.createElement('div');
+    row.className = 'fcw-row bot';
+    row.innerHTML = `
+      <div class="fcw-bubble fcw-handoff-card">
+        <p class="fcw-handoff-intro">Laissez-nous vos coordonnées, un membre de l'équipe vous répondra par e-mail.</p>
+        <input class="fcw-handoff-input" data-field="name" type="text" placeholder="Votre nom" autocomplete="name" />
+        <input class="fcw-handoff-input" data-field="email" type="email" placeholder="Votre e-mail" autocomplete="email" />
+        <textarea class="fcw-handoff-input" data-field="message" rows="2" placeholder="Votre message"></textarea>
+        <p class="fcw-handoff-error" hidden></p>
+        <div class="fcw-handoff-actions">
+          <button type="button" class="fcw-handoff-cancel">Annuler</button>
+          <button type="button" class="fcw-handoff-submit">Envoyer</button>
+        </div>
+      </div>
+    `;
+    this.messagesEl.appendChild(row);
+    this.scrollToBottom();
+
+    const nameEl = row.querySelector<HTMLInputElement>('[data-field="name"]')!;
+    const emailEl = row.querySelector<HTMLInputElement>('[data-field="email"]')!;
+    const messageEl = row.querySelector<HTMLTextAreaElement>('[data-field="message"]')!;
+    const errorEl = row.querySelector<HTMLParagraphElement>('.fcw-handoff-error')!;
+    const submitBtn = row.querySelector<HTMLButtonElement>('.fcw-handoff-submit')!;
+    const cancelBtn = row.querySelector<HTMLButtonElement>('.fcw-handoff-cancel')!;
+
+    const closeForm = () => {
+      this.handoffOpen = false;
+      row.remove();
+    };
+    cancelBtn.addEventListener('click', closeForm);
+
+    submitBtn.addEventListener('click', () => {
+      void (async () => {
+        const name = nameEl.value.trim();
+        const email = emailEl.value.trim();
+        const message = messageEl.value.trim();
+        errorEl.hidden = true;
+        if (!name || !email || !message) {
+          errorEl.textContent = 'Merci de remplir les trois champs.';
+          errorEl.hidden = false;
+          return;
+        }
+        submitBtn.disabled = true;
+        cancelBtn.disabled = true;
+        try {
+          await this.submitHandoff({ name, email, message });
+          this.handoffOpen = false;
+          row.remove();
+          this.addBubble('bot', this.o.humanHandoffSuccessMessage);
+        } catch (err) {
+          errorEl.textContent = err instanceof Error ? err.message : 'Impossible d\'envoyer la demande pour le moment.';
+          errorEl.hidden = false;
+        } finally {
+          submitBtn.disabled = false;
+          cancelBtn.disabled = false;
+        }
+      })();
+    });
+
+    nameEl.focus();
+  }
+
+  private async submitHandoff(draft: HandoffDraft): Promise<void> {
+    const env = this.isDevMode ? 'development' : 'production';
+    const res = await fetch(`${this.o.baseUrl}/public/bot/escalate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': this.o.apiKey,
+        'X-FluxChat-Env': env,
+      },
+      body: JSON.stringify({ ...draft, sessionId: this.sessionId }),
+    });
+    const json = await res.json().catch(() => undefined);
+    if (!res.ok) {
+      throw new Error(json?.message || `HTTP ${res.status}`);
+    }
   }
 
   // ── DOM helpers ─────────────────────────────────────────

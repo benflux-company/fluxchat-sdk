@@ -130,6 +130,22 @@ export interface WidgetOptions {
      */
     authTokenKeys?: string[];
   };
+
+  /**
+   * Show a "Talk to a human" button in the header. Clicking it collects the
+   * visitor's name, email and message, then POSTs to `/public/bot/escalate`
+   * — which creates a real support ticket in the organization's dashboard
+   * (same ticket an admin would see from `api.support.createTicket`), with
+   * no visitor account required. Requires the organization's plan to
+   * include support tickets; the request 403s otherwise (shown as a
+   * friendly error in the form, not a silent failure).
+   * Default: true.
+   */
+  humanHandoff?: boolean;
+  /** Label on the "talk to a human" header button. */
+  humanHandoffLabel?: string;
+  /** Message shown after a successful handoff request. */
+  humanHandoffSuccessMessage?: string;
 }
 
 export interface WidgetInstance {
