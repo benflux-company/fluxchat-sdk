@@ -86,6 +86,41 @@ items = client.knowledge.list()
 item = client.knowledge.get("abc123")
 ```
 
+## Transfert vers un humain (fil de support)
+
+Quand le bot ne suffit plus, on passe la main à un agent — et la conversation
+**reste le même fil** : le visiteur le relit, l'agent y répond.
+
+```python
+# 1. Transfert. Avec le même session_id que ask(), tout ce que le bot a déjà
+#    dit est recopié dans le ticket : l'agent prend la conversation en route.
+ticket = client.support.escalate(
+    name="Jordan Mbeki",
+    email="jordan@example.com",
+    message="Mon virement est bloqué depuis hier.",
+    session_id=my_session_id,
+)
+
+# 2. Suivi. Gardez (ticket_id, email) : l'e-mail est la preuve que le ticket
+#    est le sien — ni compte, ni jeton.
+thread = client.support.thread(ticket.ticket_id, "jordan@example.com")
+for m in thread.messages:
+    print(m.role, m.content)       # bot | visitor | agent
+if thread.agent_connected:
+    print(f"{thread.agent_name} répond")
+
+# 3. Le visiteur répond dans le même fil.
+client.support.reply(ticket.ticket_id, "jordan@example.com", "La référence est 4821.")
+```
+
+- **Un mauvais e-mail et un ticket inexistant renvoient tous deux 404**, à
+  dessein : un id deviné n'apprend rien.
+- **Polling, pas de push** : 5 s est la cadence du widget officiel (quotas :
+  60 lectures/min, 30 réponses/min, 5 escalades/min).
+- Statuts : `open` → `in_progress` → `resolved` → `closed`. Répondre sur un
+  ticket `resolved` le rouvre ; un `closed` refuse l'écriture (**403**).
+- Nécessite que le plan de l'organisation inclue `supportTickets`.
+
 ## Gestion des erreurs
 
 ```python

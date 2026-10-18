@@ -75,6 +75,30 @@ var updated = await kb.UpdateAsync(
 await kb.DeleteAsync(newItem.Id);
 ```
 
+## Transfert vers un humain (fil de support)
+
+```csharp
+var support = client.Support();
+
+// 1. Transfert — avec le même sessionId qu'AskAsync, le fil du bot suit.
+var ticket = await support.EscalateAsync(
+    "Jordan Mbeki", "jordan@example.com", "Mon virement est bloqué.", mySessionId);
+
+// 2. Suivi : l'e-mail est la preuve que le ticket est le sien.
+var thread = await support.ThreadAsync(ticket.TicketId, "jordan@example.com");
+foreach (var m in thread.Messages)
+    Console.WriteLine($"{m.Role} : {m.Content}");   // bot | visitor | agent
+
+// 3. Le visiteur répond dans le même fil.
+await support.ReplyAsync(ticket.TicketId, "jordan@example.com", "Référence 4821.");
+```
+
+- **Mauvais e-mail et ticket inexistant renvoient tous deux 404**, à dessein.
+- **Polling** : 5 s (quotas 60 lectures/min, 30 réponses/min, 5 escalades/min).
+- `open` → `in_progress` → `resolved` → `closed`. `resolved` se rouvre à la
+  réponse ; `closed` refuse l'écriture (**403**).
+- Nécessite le plan `supportTickets`.
+
 ## Gestion des erreurs
 
 ```csharp

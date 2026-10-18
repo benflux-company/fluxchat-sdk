@@ -29,6 +29,7 @@ Drop a beautiful AI assistant into any product in minutes — with per-request c
 - **Embeddable widget** — a polished, fully customizable chat bubble for any website.
 - **CLI** — talk to your bot and manage knowledge from the terminal.
 - **Universal** — ESM + CJS + TypeScript types, zero-config.
+- **Eleven stacks** — TS/JS, React, Vue, React Native, Flutter, Python, PHP, Go, Swift, Kotlin, .NET, all speaking the same API.
 
 ---
 
@@ -43,6 +44,29 @@ yarn add @fluxchat_sdk/sdk
 ```
 
 > Requires Node.js **18+** (uses the global `fetch`). The widget runs in any modern browser.
+
+### Other languages
+
+The same API, idiomatic in each stack. Every client speaks API v2, unwraps the
+`{ success, data }` envelope, maps errors to typed exceptions, and ships the
+human-handoff surface (`escalate` / `thread` / `reply`).
+
+| Stack | Package | Source | Install |
+| ----- | ------- | ------ | ------- |
+| **TypeScript / JavaScript** | `@fluxchat_sdk/sdk` | [`src/`](src) | `npm i @fluxchat_sdk/sdk` |
+| **React** | same package | [`src/react`](src/react) | `import { FluxChatWidget } from '@fluxchat_sdk/sdk/react'` |
+| **Vue** | same package | [`src/vue`](src/vue) | `import { FluxChatWidget } from '@fluxchat_sdk/sdk/vue'` |
+| **React Native** | `@fluxchat/react-native` | [`sdk/react-native`](sdk/react-native) | `npm i @fluxchat/react-native` |
+| **Dart / Flutter** | `fluxchat_sdk` | [`sdk/dart`](sdk/dart) | `dart pub add fluxchat_sdk` |
+| **Python** | `fluxchat` | [`sdk/python`](sdk/python) | `pip install fluxchat` |
+| **PHP** | `fluxchat/sdk` | [`sdk/php`](sdk/php) | `composer require fluxchat/sdk` |
+| **Go** | `fluxchat` | [`sdk/go`](sdk/go) | `go get github.com/benflux-company/fluxchat-sdk/sdk/go` |
+| **Swift** | `FluxChat` | [`sdk/swift`](sdk/swift) | Swift Package Manager |
+| **Kotlin / JVM** | `com.fluxchat:sdk` | [`sdk/kotlin`](sdk/kotlin) | Gradle |
+| **.NET / C#** | `FluxChat` | [`sdk/dotnet`](sdk/dotnet) | `dotnet add package FluxChat` |
+
+Every client defaults to `https://api.fluxchat-corp.com/api/v2` — **production**.
+Pass `baseUrl` explicitly to target dev.
 
 ---
 
@@ -660,6 +684,23 @@ instead — the dev cluster, not production.
 | Knowledge **read**, persona `config`       | JWT (admin) token                |
 
 Create and manage API keys from the **[FluxChat dashboard](https://fluxchat-corp.com)** → Organization settings → API Keys.
+
+---
+
+## Contributors
+
+FluxChat's SDKs are built by the Benflux team and its contributors.
+
+| | Contribution |
+| --- | --- |
+| **[@benbaruka](https://github.com/benbaruka)** (Ben Ickah) | Core TypeScript SDK, CLI, embeddable widget, human handoff and support thread, Dart/Flutter SDK |
+| **[@benjaminmugangu](https://github.com/benjaminmugangu)** | Python, PHP, Swift, Kotlin, .NET and React Native SDKs |
+| **Baruka David** | Go SDK |
+
+Adding a stack? [`CONTRIBUTING.md`](CONTRIBUTING.md) has the required checklist
+— every client must speak API v2, unwrap the `{ success, data }` envelope, map
+errors to typed exceptions, default to the **production** base URL, and
+implement the handoff surface (`escalate` / `thread` / `reply`).
 
 ---
 

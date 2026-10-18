@@ -107,6 +107,37 @@ let updated = try await kb.update(
 try await kb.delete(id: newItem.id!)
 ```
 
+## Transfert vers un humain (fil de support)
+
+```swift
+let support = client.support()
+
+// 1. Transfert — avec le même sessionId qu'ask, le fil du bot suit.
+let ticket = try await support.escalate(
+    name: "Jordan Mbeki",
+    email: "jordan@example.com",
+    message: "Mon virement est bloqué.",
+    sessionId: mySessionId
+)
+
+// 2. Suivi : l'e-mail est la preuve que le ticket est le sien.
+let thread = try await support.thread(ticketId: ticket.ticketId, email: "jordan@example.com")
+for m in thread.messages {
+    print(m.role, m.content)       // .bot | .visitor | .agent
+}
+
+// 3. Le visiteur répond dans le même fil.
+try await support.reply(ticketId: ticket.ticketId,
+                        email: "jordan@example.com",
+                        content: "Référence 4821.")
+```
+
+- **Mauvais e-mail et ticket inexistant renvoient tous deux 404**, à dessein.
+- **Polling** : 5 s (quotas 60 lectures/min, 30 réponses/min, 5 escalades/min).
+- `open` → `in_progress` → `resolved` → `closed`. `resolved` se rouvre à la
+  réponse ; `closed` refuse l'écriture (**403**).
+- Nécessite le plan `supportTickets`.
+
 ## Gestion des erreurs
 
 ```swift

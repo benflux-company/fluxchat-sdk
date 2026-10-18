@@ -77,6 +77,33 @@ val updated = kb.update(
 kb.delete(id = newItem.id!!)
 ```
 
+## Transfert vers un humain (fil de support)
+
+```kotlin
+val support = client.support()
+
+// 1. Transfert — avec le même sessionId qu'ask, le fil du bot suit.
+val ticket = support.escalate(
+    name = "Jordan Mbeki",
+    email = "jordan@example.com",
+    message = "Mon virement est bloqué.",
+    sessionId = mySessionId,
+)
+
+// 2. Suivi : l'e-mail est la preuve que le ticket est le sien.
+val thread = support.thread(ticket.ticketId, "jordan@example.com")
+thread.messages.forEach { println("${it.role} : ${it.content}") }  // bot | visitor | agent
+
+// 3. Le visiteur répond dans le même fil.
+support.reply(ticket.ticketId, "jordan@example.com", "Référence 4821.")
+```
+
+- **Mauvais e-mail et ticket inexistant renvoient tous deux 404**, à dessein.
+- **Polling** : 5 s (quotas 60 lectures/min, 30 réponses/min, 5 escalades/min).
+- `open` → `in_progress` → `resolved` → `closed`. `resolved` se rouvre à la
+  réponse ; `closed` refuse l'écriture (**403**).
+- Nécessite le plan `supportTickets`.
+
 ## Gestion des erreurs
 
 ```kotlin
