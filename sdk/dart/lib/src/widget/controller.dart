@@ -6,8 +6,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
-import '../client.dart';
-import '../types.dart';
+import '../client.dart'; // re-exports types.dart, so AskOptions & co. come with it
 import 'chat_message_model.dart';
 import 'options.dart';
 

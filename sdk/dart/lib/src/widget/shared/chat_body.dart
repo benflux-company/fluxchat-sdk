@@ -6,7 +6,6 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../chat_message_model.dart';
 import '../controller.dart';
 import 'message_bubble.dart';
 
