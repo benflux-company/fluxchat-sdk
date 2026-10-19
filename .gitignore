@@ -7,3 +7,13 @@ coverage/
 .env.*
 !.env.example
 graphify-out/
+
+# Python bytecode from the sdk/python package
+__pycache__/
+*.py[cod]
+
+# .NET build output from the sdk/dotnet package
+sdk/dotnet/**/bin/
+sdk/dotnet/**/obj/
+# Swift build output
+sdk/swift/.build/

@@ -12,4 +12,20 @@
     <PackageTags>fluxchat;sdk;chat;ai</PackageTags>
   </PropertyGroup>
 
+  <!-- SDK-style projects glob **/*.cs, so the library project was also
+       compiling Tests/FluxChatClientTests.cs — 19 errors about [Fact] and
+       Moq, which only the test project references. The test project builds
+       those files itself through its own csproj. -->
+  <ItemGroup>
+    <Compile Remove="Tests/**" />
+    <None Remove="Tests/**" />
+  </ItemGroup>
+
+  <!-- The test-only constructor that injects an HttpClient is `internal`, and
+       the tests are a separate assembly: without this they cannot see it and
+       every test fails to compile. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="FluxChat.Tests" />
+  </ItemGroup>
+
 </Project>

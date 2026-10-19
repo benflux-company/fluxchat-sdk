@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react-hooks';
+import { renderHook, act } from './support/renderHook';
 import { useFluxChat } from '../src/useFluxChat';
 
 // Mock global fetch

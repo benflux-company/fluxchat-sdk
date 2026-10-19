@@ -1,5 +1,10 @@
 import XCTest
 import Foundation
+// See the note in Sources/FluxChat — URLSession and friends live in
+// FoundationNetworking on Linux.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import FluxChat
 
 // MARK: - MockURLProtocol
