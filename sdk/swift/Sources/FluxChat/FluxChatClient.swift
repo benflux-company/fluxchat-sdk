@@ -1,4 +1,11 @@
 import Foundation
+// On Linux, URLSession / URLRequest / HTTPURLResponse live in
+// FoundationNetworking, not Foundation — without this the package does not
+// compile there at all, which rules out CI and server-side Swift. The import
+// is guarded because the module does not exist on Apple platforms.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Client principal FluxChat pour Swift (iOS & macOS).
 ///
@@ -105,9 +112,9 @@ public final class FluxChatClient {
 /// 5 secondes est la cadence du widget officiel, et celle pour laquelle les
 /// quotas de la route sont dimensionnés.
 public final class SupportClient {
-    private let http: HTTPClient
+    private let http: HTTPHelper
 
-    init(http: HTTPClient) {
+    init(http: HTTPHelper) {
         self.http = http
     }
 

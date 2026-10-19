@@ -1,4 +1,11 @@
 import Foundation
+// On Linux, URLSession / URLRequest / HTTPURLResponse live in
+// FoundationNetworking, not Foundation — without this the package does not
+// compile there at all, which rules out CI and server-side Swift. The import
+// is guarded because the module does not exist on Apple platforms.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Helper HTTP interne utilisé par `FluxChatClient` et `KnowledgeClient`.
 actor HTTPHelper {
@@ -85,7 +92,7 @@ actor HTTPHelper {
 
     private func fetch(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await session.data(for: req)
+            let (data, response) = try await session.fluxchatData(for: req)
             guard let http = response as? HTTPURLResponse else {
                 throw FluxChatNetworkError("Non-HTTP response received")
             }
@@ -168,5 +175,37 @@ public final class KnowledgeClient {
     /// Supprime un élément par son ID (requiert un JWT).
     public func delete(id: String) async throws {
         try await http.delete("/bot/knowledge/\(id)", jwtToken: jwtToken)
+    }
+}
+
+
+// MARK: - Linux portability
+
+extension URLSession {
+    /// `data(for:)` is not part of swift-corelibs-foundation on the Swift 5.9
+    /// Linux toolchain, so the package would not compile for CI or
+    /// server-side Swift. Bridge the completion-handler API there and keep
+    /// the native implementation on Apple platforms.
+    func fluxchatData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        #if canImport(FoundationNetworking)
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = self.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let data, let response else {
+                    continuation.resume(
+                        throwing: FluxChatNetworkError("Empty response from transport")
+                    )
+                    return
+                }
+                continuation.resume(returning: (data, response))
+            }
+            task.resume()
+        }
+        #else
+        return try await self.data(for: request)
+        #endif
     }
 }

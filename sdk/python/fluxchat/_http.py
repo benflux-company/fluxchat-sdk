@@ -25,17 +25,24 @@ class HttpHelper:
     def get(self, path: str, extra_headers: dict | None = None) -> Any:
         return self._request("GET", path, extra_headers=extra_headers)
 
-    def post(self, path: str, body: dict | None = None) -> Any:
-        return self._request("POST", path, body=body)
+    # extra_headers on every verb, not just get(): KnowledgeClient passes the
+    # admin JWT header to create/update/delete, and these four silently did
+    # not accept it — every write raised TypeError before a request was ever
+    # made. _request has always supported it.
+    def post(self, path: str, body: dict | None = None,
+             extra_headers: dict | None = None) -> Any:
+        return self._request("POST", path, body=body, extra_headers=extra_headers)
 
-    def put(self, path: str, body: dict | None = None) -> Any:
-        return self._request("PUT", path, body=body)
+    def put(self, path: str, body: dict | None = None,
+            extra_headers: dict | None = None) -> Any:
+        return self._request("PUT", path, body=body, extra_headers=extra_headers)
 
-    def patch(self, path: str, body: dict | None = None) -> Any:
-        return self._request("PATCH", path, body=body)
+    def patch(self, path: str, body: dict | None = None,
+              extra_headers: dict | None = None) -> Any:
+        return self._request("PATCH", path, body=body, extra_headers=extra_headers)
 
-    def delete(self, path: str) -> None:
-        self._request("DELETE", path)
+    def delete(self, path: str, extra_headers: dict | None = None) -> None:
+        self._request("DELETE", path, extra_headers=extra_headers)
 
     def _request(self, method: str, path: str,
                  body: dict | None = None,
