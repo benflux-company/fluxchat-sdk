@@ -95,7 +95,9 @@ export interface WidgetOptions {
    * Captured pages are immediately available to the bot as context; no admin
    * "import" step is needed.
    *
-   * Default: true. Set to false only if you handle KB population yourself.
+   * Default: false (H1, audit 2026-09-24) — this reads localStorage and
+   * intercepts the host page's own fetch/XHR calls, a meaningful amount of
+   * passive access to grant on every install. Set to true to opt in.
    */
   autoCapture?: boolean;
 
