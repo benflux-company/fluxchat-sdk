@@ -216,6 +216,90 @@ describe('FluxChatWidget', () => {
     new FluxChatWidget({ apiKey: 'k', humanHandoff: false });
     expect(document.querySelector('.fcw-handoff')).toBeNull();
   });
+
+  describe('platform API auto-enrichment — admin endpoints excluded', () => {
+    const PLATFORM_BASE = 'https://platform.test';
+    const openApiSpec = {
+      paths: {
+        '/api/events': {
+          get: { summary: 'List events', tags: ['Public'] },
+        },
+        '/api/admin/users': {
+          get: { summary: 'List all users admin', tags: ['Admin'] },
+        },
+      },
+    };
+
+    function stubFetch() {
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === `${PLATFORM_BASE}/openapi.json`) {
+          return { ok: true, json: async () => openApiSpec };
+        }
+        if (url === `${PLATFORM_BASE}/api/events`) {
+          return { ok: true, json: async () => ({ data: { events: ['concert'] } }) };
+        }
+        if (url === `${PLATFORM_BASE}/api/admin/users`) {
+          return { ok: true, json: async () => ({ data: { usersadmin: ['secret-pii'] } }) };
+        }
+        if (url === 'https://api.test/api/v1/public/bot/ask') {
+          return { ok: true, json: async () => ({ success: true, data: { reply: 'ok', conversationId: '' } }) };
+        }
+        return { ok: false, json: async () => ({}) };
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    }
+
+    it('never auto-discovers a path tagged/named admin, so its data cannot reach the chat context', async () => {
+      const fetchMock = stubFetch();
+      const w = new FluxChatWidget({
+        apiKey: 'secret',
+        baseUrl: 'https://api.test/api/v1',
+        platformApi: { baseUrl: PLATFORM_BASE },
+      });
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(`${PLATFORM_BASE}/openapi.json`, expect.anything());
+      });
+      // Let the openapi.json response's own .json()/parse microtasks settle
+      // before sending — the waitFor above only proves the request was made.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // "admin" matches the discovered admin endpoint's own summary keywords —
+      // if the exclusion failed, this exact question is what would trigger it.
+      w.send('tell me about admin users');
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('https://api.test/api/v1/public/bot/ask', expect.anything());
+      });
+
+      expect(fetchMock).not.toHaveBeenCalledWith(`${PLATFORM_BASE}/api/admin/users`, expect.anything());
+      const askCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.test/api/v1/public/bot/ask');
+      const body = JSON.parse((askCall?.[1] as RequestInit).body as string);
+      expect(body.context ?? '').not.toContain('secret-pii');
+    });
+
+    it('allowedPaths further restricts enrichment to an explicit opt-in subset', async () => {
+      const fetchMock = stubFetch();
+      const w = new FluxChatWidget({
+        apiKey: 'secret',
+        baseUrl: 'https://api.test/api/v1',
+        platformApi: { baseUrl: PLATFORM_BASE, allowedPaths: ['/api/events'] },
+      });
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(`${PLATFORM_BASE}/openapi.json`, expect.anything());
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      w.send('what events are happening');
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(`${PLATFORM_BASE}/api/events`, expect.anything());
+      });
+      expect(fetchMock).not.toHaveBeenCalledWith(`${PLATFORM_BASE}/api/admin/users`, expect.anything());
+    });
+  });
 });
 
 // Once a visitor has been handed off to a human, the widget stops talking to

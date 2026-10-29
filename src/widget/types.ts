@@ -129,6 +129,17 @@ export interface WidgetOptions {
      * Default: ['member_token', 'admin_token', 'token', 'auth_token', 'access_token']
      */
     authTokenKeys?: string[];
+    /**
+     * Restrict auto-enrichment to these path prefixes (matched against the
+     * OpenAPI path, e.g. '/api/events', '/api/sermons'). Strongly
+     * recommended: without this, every parameterless GET endpoint found in
+     * your OpenAPI spec is a candidate, and its full JSON response gets
+     * forwarded to FluxChat's backend (and stored in the conversation) when
+     * a visitor's question happens to match it by keyword — including
+     * admin/bulk-listing endpoints if the visitor's own stored token can
+     * reach them. Scope this to read-only, visitor-safe endpoints.
+     */
+    allowedPaths?: string[];
   };
 
   /**
