@@ -181,7 +181,6 @@ export class FluxChatWidget implements WidgetInstance {
   private ticketClosed = false;
   private seenMessageIds = new Set<string>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private threadHydrated = false;
 
   constructor(options: WidgetOptions) {
     this.o = resolve(options);
@@ -946,7 +945,6 @@ export class FluxChatWidget implements WidgetInstance {
     this.stopPolling();
     this.ticket = null;
     this.ticketClosed = false;
-    this.threadHydrated = false;
     this.seenMessageIds.clear();
     this.storeTicket(null);
     this.conversationId = '';
@@ -1001,7 +999,6 @@ export class FluxChatWidget implements WidgetInstance {
 
     if (opts?.seedOnly) {
       for (const m of snapshot.messages) this.seenMessageIds.add(m.id);
-      this.threadHydrated = true;
       this.renderBanner(this.bannerStateFor(snapshot));
       return;
     }
@@ -1011,7 +1008,6 @@ export class FluxChatWidget implements WidgetInstance {
       this.seenMessageIds.add(m.id);
       this.addThreadBubble(m, snapshot.agentName);
     }
-    this.threadHydrated = true;
     this.renderBanner(this.bannerStateFor(snapshot));
 
     if (snapshot.closed) {
