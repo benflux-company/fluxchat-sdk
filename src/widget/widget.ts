@@ -580,11 +580,24 @@ export class FluxChatWidget implements WidgetInstance {
   private parsePlatformSpec(spec: unknown, base: string): void {
     const paths = (spec as Record<string, unknown>)?.paths as Record<string, Record<string, unknown>> | undefined;
     if (!paths) return;
+    const allowedPaths = this.o.platformApi?.allowedPaths;
     for (const [path, methods] of Object.entries(paths)) {
       if (path.includes('{')) continue; // skip endpoints needing a path param
+      // Found live: an unscoped integration auto-discovers every
+      // parameterless GET in the spec, so a bulk "list all X" admin
+      // endpoint matches by keyword exactly like a visitor-safe one and its
+      // full response gets forwarded to FluxChat's backend. allowedPaths
+      // opts an integrator into a safe subset; absent that, at least drop
+      // the endpoints that advertise themselves as admin/internal-only.
+      if (allowedPaths?.length) {
+        if (!allowedPaths.some((p) => path === p || path.startsWith(p))) continue;
+      } else if (/\/admin(\/|$)|\/internal(\/|$)/i.test(path)) {
+        continue;
+      }
       const op = methods['get'] as Record<string, unknown> | undefined;
       if (!op) continue;
       const tags = Array.isArray(op['tags']) ? (op['tags'] as string[]).join(' ') : '';
+      if (!allowedPaths?.length && /\badmin\b/i.test(tags)) continue;
       this.platformEndpoints.push({
         path: `${base}${path}`,
         summary: String(op['summary'] ?? op['operationId'] ?? ''),
